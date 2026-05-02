@@ -174,13 +174,10 @@ SlideNote/
 |--------|------|------|
 | `POST` | `/api/files/upload` | PPTX/PDF 업로드 → 슬라이드 PNG 생성 |
 | `GET` | `/api/files/{file_id}/slides` | 슬라이드 목록 반환 |
-| `GET` | `/api/files/{file_id}/slide/{n}` | n번째 슬라이드 PNG 반환 |
-| `GET` | `/api/notes/{file_id}/{slide_n}` | 특정 슬라이드 노트 조회 |
-| `PUT` | `/api/notes/{file_id}/{slide_n}` | 노트 저장/수정 |
-| `GET` | `/api/notes/{file_id}/{slide_n}/annotations` | 주석 레이어 JSON 조회 |
-| `PUT` | `/api/notes/{file_id}/{slide_n}/annotations` | 주석 레이어 저장 |
-| `POST` | `/api/ai/summarize/{file_id}/{slide_n}` | AI 요약 노트 생성 |
-| `POST` | `/api/export/{file_id}` | 주석+노트 PDF 내보내기 |
+| `GET` | `/api/notes/{file_id}/{page}` | 특정 슬라이드 노트 조회 |
+| `PUT` | `/api/notes/{file_id}/{page}` | 노트 + 주석 저장 |
+| `POST` | `/api/ai/{file_id}/summarize` | AI 요약 생성 (Gemini Vision) |
+| `GET` | `/api/export/{file_id}` | 슬라이드 PDF 내보내기 |
 
 ---
 
@@ -199,9 +196,9 @@ SlideNote/
 
 ## 로드맵
 
-- [ ] **v0.1** — PDF/PPTX 업로드 + 슬라이드 뷰어 + 노트 저장
-- [ ] **v0.2** — Fabric.js 주석 레이어 (펜·형광펜·텍스트)
-- [ ] **v0.3** — AI 자동 요약 (Gemini Vision)
+- [x] **v0.1** — PDF/PPTX 업로드 + 슬라이드 뷰어 + 노트 저장
+- [x] **v0.2** — Fabric.js 주석 레이어 (펜·형광펜·텍스트)
+- [x] **v0.3** — AI 자동 요약 (Gemini Vision) + 방향키 네비게이션 + 헤더 업로드
 - [ ] **v0.4** — PDF 내보내기 (주석 + 노트 병합)
 - [ ] **v0.5** — 오디오 녹음 연동
 - [ ] **v1.0** — Firebase 동기화 + 화이트보드 모드

@@ -253,8 +253,17 @@ export function useAnnotation(canvasRef) {
 
 ## Phase 2: 차별화 기능 (4~6주)
 
-### 2-1. AI 자동 요약
+> **진행 상태**: ✅ 2-1 완료 (commit `bedfdde`, 2025-05)
 
+### 2-1. AI 자동 요약 ✅
+
+**구현 완료**:
+- `services/gemini.py`: `summarize_slide(img_path)` — PRIMARY `gemini-2.5-flash-image`, FALLBACK `gemini-2.5-flash`, DELAY 7.0s
+- `routers/ai.py`: `POST /api/ai/{file_id}/summarize` — 노트 파일 ai_summary 필드 업데이트
+- `App.jsx`: "AI 요약 생성" 버튼 + 결과 우측 패널 표시, 방향키(←/→) 네비게이션, 헤더 UploadButton
+- `.env.example`: `GOOGLE_API_KEY` 발급 안내
+
+**원래 설계** (참고):
 ```
 슬라이드 PNG + python-pptx 메타데이터 → Gemini Vision
                                             ↓
