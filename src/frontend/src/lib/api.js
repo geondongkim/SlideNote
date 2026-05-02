@@ -26,4 +26,9 @@ export const saveNote = async (fileId, page, payload) => {
   return data
 }
 
+export const summarizeSlide = async (fileId, page) => {
+  const { data } = await api.post(`/ai/${fileId}/summarize`, { page })
+  return data
+}
+
 export default api

@@ -25,10 +25,11 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # 라우터 등록
-from routers import files, notes, export
+from routers import files, notes, export, ai
 app.include_router(files.router, prefix="/api/files", tags=["files"])
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(export.router, prefix="/api/export", tags=["export"])
+app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 
 
 @app.get("/")
