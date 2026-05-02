@@ -1,0 +1,93 @@
+"""파일 업로드 / 슬라이드 메타 조회"""
+from __future__ import annotations
+
+import json
+import logging
+import shutil
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, UploadFile
+
+from services.converter import pdf_to_pngs, pptx_to_pngs
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+UPLOADS_DIR = Path("uploads")
+ALLOWED_EXT = {".pdf", ".pptx"}
+MAX_BYTES = 50 * 1024 * 1024  # 50MB
+
+
+@router.post("/upload")
+async def upload_file(file: UploadFile):
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(400, f"지원하지 않는 형식: {ext} (허용: {ALLOWED_EXT})")
+
+    file_id = uuid.uuid4().hex
+    file_dir = UPLOADS_DIR / file_id
+    file_dir.mkdir(parents=True, exist_ok=True)
+    original = file_dir / f"original{ext}"
+
+    # 50MB 제한 검사 + 저장
+    size = 0
+    with original.open("wb") as f:
+        while chunk := await file.read(1 << 20):
+            size += len(chunk)
+            if size > MAX_BYTES:
+                shutil.rmtree(file_dir, ignore_errors=True)
+                raise HTTPException(413, f"파일 크기 초과 (최대 {MAX_BYTES // 1024 // 1024}MB)")
+            f.write(chunk)
+
+    slides_dir = file_dir / "slides"
+    try:
+        if ext == ".pdf":
+            pages = pdf_to_pngs(original, slides_dir)
+        else:
+            pages = pptx_to_pngs(original, slides_dir)
+    except Exception as e:
+        logger.exception("변환 실패")
+        shutil.rmtree(file_dir, ignore_errors=True)
+        raise HTTPException(500, f"변환 실패: {e}")
+
+    metadata = {
+        "fileId": file_id,
+        "filename": file.filename,
+        "ext": ext,
+        "pageCount": len(pages),
+        "uploadedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    (file_dir / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return metadata
+
+
+@router.get("/{file_id}")
+def get_file_meta(file_id: str):
+    meta = UPLOADS_DIR / _safe_id(file_id) / "metadata.json"
+    if not meta.exists():
+        raise HTTPException(404, "파일을 찾을 수 없음")
+    return json.loads(meta.read_text(encoding="utf-8"))
+
+
+@router.get("/{file_id}/slides")
+def list_slides(file_id: str):
+    meta = get_file_meta(file_id)
+    return {
+        "fileId": file_id,
+        "pageCount": meta["pageCount"],
+        "slides": [
+            {"page": i, "url": f"/uploads/{file_id}/slides/page_{i:02d}.png"}
+            for i in range(1, meta["pageCount"] + 1)
+        ],
+    }
+
+
+def _safe_id(file_id: str) -> str:
+    """경로 탐색 공격 방지: hex 32자만 허용"""
+    if len(file_id) != 32 or not all(c in "0123456789abcdef" for c in file_id):
+        raise HTTPException(400, "잘못된 file_id")
+    return file_id

@@ -50,6 +50,14 @@
 
 ## Phase 1: MVP (2~3주)
 
+> **진행 상태 (2026-05-03)**: 1주차 백엔드/프론트 골격 구현 완료
+> - ✅ `services/converter.py` (pdf_to_pngs / pptx_to_pngs Windows·LibreOffice 분기)
+> - ✅ `routers/files.py` (`POST /api/files/upload`, `GET /{id}/slides`, 50MB 제한, file_id sanitize)
+> - ✅ `routers/notes.py` (`GET/PUT /api/notes/{file_id}/{page}` 파일 기반 JSON)
+> - ✅ 프론트 `lib/api.js`, `store/useAppStore.js`, `components/UploadButton.jsx`, `SlideList.jsx`
+> - ✅ App.jsx 통합 + 노트 자동 저장 (500ms 디바운스)
+> - ⏭️ 다음: Fabric.js Canvas 주석, PDF 내보내기, 단위 테스트
+
 ### 1-1. 백엔드 기반 (`src/backend/`)
 
 #### `services/converter.py`
