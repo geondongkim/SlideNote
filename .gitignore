@@ -17,6 +17,9 @@ venv/
 uploads/
 src/backend/uploads/
 
+# 참고 리포지토리 (로컬 참고용 — 별도 clone 필요, README.md 참고)
+repo/
+
 # Node.js
 node_modules/
 dist/

@@ -123,9 +123,31 @@ async def upload_file(file: UploadFile):
 ```python
 # 노트 저장 형식 (파일 기반, Phase 1)
 # uploads/{file_id}/notes/slide_{n:02d}.json
+#
+# pdfanno(paperai/pdfanno)의 스키마를 참고하여 정규화된 좌표 방식 채택
+# - id: UUID (pdfanno 방식)
+# - page: 1-based 페이지 번호 (pdfanno 방식과 동일)
+# - type: 'rect' | 'span' | 'path' | 'text' (pdfanno 타입 체계 확장)
+# - position: [x, y, width, height]  — 뷰포트 상대 비율(0~1)로 정규화
+#   → 해상도 변경에도 주석 위치 유지 (pdfanno의 convertFromExportY 아이디어)
+#
 # {
+#   "version": "1.0",
+#   "fileId": "...",
+#   "page": 1,
 #   "text": "발표 대본...",
-#   "annotations": {...},  # Fabric.js JSON
+#   "annotations": {
+#     "fabricVersion": "6.6.1",
+#     "objects": [                    # Fabric.js toJSON() 결과
+#       {
+#         "id": "<uuid>",            # 추가 필드
+#         "type": "path",
+#         "_pageRatio": [1.0, 0.75], # 저장 당시 이미지 비율 (리사이즈 복원용)
+#         "_timestamp": 32.5,        # 오디오 타임스탬프 (Phase 2)
+#         ...                        # Fabric.js 표준 필드
+#       }
+#     ]
+#   },
 #   "ai_summary": "...",
 #   "updated_at": "2026-05-03T..."
 # }
@@ -158,32 +180,66 @@ export function useSlideImage(fileId, slideNum) {
 }
 ```
 
-#### `useAnnotation.js` (Fabric.js)
+#### `useAnnotation.js` (Fabric.js + drauu 패턴 참고)
 
 ```js
-// 주석 도구 상태 관리
+// Slidev(slidevjs/slidev)의 useDrawings.ts + pympress scribble.py 패턴 적용
 export function useAnnotation(canvasRef) {
-  const [tool, setTool] = useState('select'); // pen | highlight | rect | text
+  // ── 도구 상태 (Slidev brushColors 팔레트 참고) ──
+  const BRUSH_COLORS = ['#ff595e','#ffca3a','#8ac926','#1982c4','#6a4c93','#ffffff','#000000'];
+  const [tool, setTool]   = useState('select'); // pen | highlight | rect | text | arrow
+  const [color, setColor] = useState(BRUSH_COLORS[0]);
+  const [width, setWidth] = useState(2);
+
+  // ── Undo/Redo 스택 (pympress scribble_list / scribble_redo_list 패턴) ──
+  // Fabric.js는 내장 history 없음 → 스냅샷 스택으로 직접 구현
+  const historyRef   = useRef([]);  // [{objects: [...], timestamp}]
+  const redoStackRef = useRef([]);
+
+  const saveSnapshot = () => {
+    historyRef.current.push(canvas.toJSON(['id','_timestamp','_pageRatio']));
+    redoStackRef.current = [];      // redo 스택 클리어 (pympress scribble_drawing 패턴)
+    if (historyRef.current.length > 50) historyRef.current.shift(); // max 50
+  };
+
+  const undo = () => {
+    if (historyRef.current.length < 2) return;
+    redoStackRef.current.push(historyRef.current.pop());
+    canvas.loadFromJSON(historyRef.current.at(-1), () => canvas.renderAll());
+  };
+
+  const redo = () => {
+    if (!redoStackRef.current.length) return;
+    const next = redoStackRef.current.pop();
+    historyRef.current.push(next);
+    canvas.loadFromJSON(next, () => canvas.renderAll());
+  };
 
   const enablePen = () => {
     canvas.isDrawingMode = true;
-    canvas.freeDrawingBrush.color = '#e74c3c';
-    canvas.freeDrawingBrush.width = 2;
+    canvas.freeDrawingBrush.color = color;
+    canvas.freeDrawingBrush.width = width;
   };
 
   const enableHighlight = () => {
     canvas.isDrawingMode = true;
-    canvas.freeDrawingBrush.color = 'rgba(255,235,0,0.4)';
+    canvas.freeDrawingBrush.color = color.replace(')', ',0.4)').replace('rgb','rgba');
     canvas.freeDrawingBrush.width = 20;
   };
 
+  // Slidev의 per-slide drawing state 저장 방식 참고:
+  // BroadcastChannel로 동일 파일 열린 다른 탭과 실시간 동기화 (Phase 3)
   const saveAnnotations = async () => {
-    const json = canvas.toJSON();
+    const json = canvas.toJSON(['id','_timestamp','_pageRatio']);
     await api.put(`/notes/${fileId}/${slideNum}/annotations`, json);
   };
-  ...
+
+  return { tool, setTool, color, setColor, width, setWidth,
+           enablePen, enableHighlight, undo, redo, saveAnnotations };
 }
 ```
+
+> **참고**: Slidev는 `drauu` 라이브러리(SVG 기반)를 사용하지만, SlideNote는 이미지 위 픽셀 드로잉이 목적이므로 Canvas 기반 Fabric.js 유지. Undo 스택 패턴만 참고.
 
 ---
 
@@ -259,19 +315,80 @@ def export_handout(file_id: str, layout: Literal["1up", "2up", "4up"]) -> Path:
 인증      → Firebase Auth (Google 로그인)
 ```
 
-### Docker 배포
+### Gotenberg 기반 PPTX 변환 서버 (Linux/Mac 배포 시)
+
+> 참고: `gotenberg/gotenberg` — LibreOffice + Chromium 기반 문서 변환 API
+
+```python
+# services/converter.py — Linux 환경 PPTX 변환 대안
+import httpx, pathlib
+
+GOTENBERG_URL = os.getenv("GOTENBERG_URL", "http://gotenberg:3000")
+
+async def pptx_to_pdf_via_gotenberg(pptx_path: pathlib.Path) -> bytes:
+    """
+    POST /forms/libreoffice/convert  (multipart)
+    Gotenberg 주요 옵션:
+      exportHiddenSlides=false  — 숨긴 슬라이드 제외
+      exportNotesPages=false    — 발표자 노트 페이지 제외
+      quality=90                — JPEG 품질
+      reduceImageResolution=true / maxImageResolution=300
+    반환: PDF bytes → 이후 PyMuPDF로 PNG 변환
+    """
+    async with httpx.AsyncClient() as client:
+        files = {"files": (pptx_path.name, open(pptx_path, "rb"), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
+        data  = {"exportHiddenSlides": "false", "quality": "90"}
+        r = await client.post(f"{GOTENBERG_URL}/forms/libreoffice/convert", files=files, data=data)
+        r.raise_for_status()
+        return r.content
+```
 
 ```yaml
-# docker-compose.yml
+# docker-compose.yml (Gotenberg 포함)
 services:
   backend:
     build: ./src/backend
     ports: ["8000:8000"]
     volumes: ["./uploads:/app/uploads"]
+    environment:
+      - GOTENBERG_URL=http://gotenberg:3000
   frontend:
     build: ./src/frontend
     ports: ["5173:80"]
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    ports: ["3000:3000"]
+    command:
+      - "gotenberg"
+      - "--libreoffice-auto-start=true"
 ```
+
+> **주의**: Windows 로컬 개발 시는 win32com 사용. Linux 배포/CI 환경에서만 Gotenberg 활성화.
+
+### 모바일 앱 (React Native, Phase 3 확장)
+
+> 참고: `thatkid02/react-native-pdf-viewer` — NitroModules 기반 네이티브 PDF 뷰어
+
+```tsx
+// NitroModules 방식: 네이티브 PDF 렌더링 (pdfjs보다 성능 우수)
+import { PdfViewer } from 'react-native-pdf-viewer';
+
+// 핵심 Props (PdfViewer.nitro.ts 참고)
+<PdfViewer
+  source="file:///path/to/slide.pdf"  // file://, http://, https://
+  horizontal={true}                   // iOS: 가로 스크롤 (슬라이드 모드)
+  enablePaging={true}                 // iOS: 페이지 단위 스크롤
+  spacing={8}
+  onLoadComplete={(e) => setPageCount(e.pageCount)}
+  onPageChange={(e) => setCurrentPage(e.page)}
+  onThumbnailGenerated={(e) => setThumb(e.uri)}
+/>
+// DocumentInfo: { pageCount, pageWidth, pageHeight, currentPage }  (0-indexed)
+// Android: PDF 렌더링은 PDFRenderer API 사용
+```
+
+> Flutter 대안: `aliyoge/flutter_file_preview` — Android(TBS), iOS(WKWebView)
+> PPT/PDF/Word/Excel 지원. 단, 커스텀 주석 레이어 추가 어려움 → React Native 권장.
 
 ---
 
@@ -319,6 +436,8 @@ uploads/
 - [ ] React + Vite 프론트엔드 초기화
 - [ ] 3단 레이아웃 (`SlideList` + `SlideViewer` + `NoteEditor`)
 - [ ] Fabric.js Canvas 통합 (펜, 형광펜)
+- [ ] **Undo/Redo 스택 구현** (pympress scribble_list 패턴 — 스냅샷 방식, 최대 50단계)
+- [ ] **주석 좌표 정규화** (pdfanno `_pageRatio` 패턴 — 뷰포트 비율로 저장)
 - [ ] 노트 저장/불러오기 (`/api/notes`)
 
 ### 3주차
@@ -338,11 +457,41 @@ uploads/
 
 ---
 
+## 오픈소스 참고 분석 요약
+
+클론 위치: `repo/` (shallow, `--depth=1`)
+
+| 리포지토리 | 핵심 분석 파일 | 채택한 패턴 |
+|-----------|--------------|------------|
+| `pdfanno` | `src/core/src/annotation/rect.js`, `schemas/pdfanno-schema.json` | 주석 좌표 정규화 (뷰포트 비율), uuid 기반 ID, type 체계 |
+| `slidev` | `packages/client/composables/useDrawings.ts`, `state/drawings.ts` | Per-slide `Record<pageNo, svgStr>` 저장, BroadcastChannel 탭간 동기화 |
+| `pympress` | `pympress/scribble.py` | Undo 스냅샷 스택 + Redo 스택, color/width 도구 상태 |
+| `gotenberg` | `pkg/modules/libreoffice/routes.go` | `/forms/libreoffice/convert` multipart API, exportHiddenSlides/quality 옵션 |
+| `PptxGenJS` | `README.md` | Phase 2: 유인물 내보내기 시 JS 환경에서 PPTX 재생성 고려 |
+| `stirling-pdf` | `app/core/.../controller/api/` | 50+ PDF 도구 REST API 구조 참고 (Java Spring Boot) |
+| `react-native-pdf-viewer` | `src/PdfViewer.nitro.ts` | NitroModules 인터페이스, DocumentInfo 이벤트 구조 |
+| `flutter_file_preview` | README | Android TBS / iOS WKWebView, PPT/PDF 파일 지원 범위 |
+| `loose-leaf` | iOS Obj-C | 제스처 기반 필기 UX 참고 (Apple Pencil pressure 값 저장 → pympress에서도 동일) |
+
+### 핵심 채택 결정
+
+1. **주석 좌표 정규화**: pdfanno의 `convertFromExportY()` 아이디어 → 저장 시 `_pageRatio:[w,h]` 기록, 로드 시 현재 뷰포트 크기로 역변환. 해상도 변경에도 주석 위치 유지.
+
+2. **Undo/Redo 스택**: pympress의 `scribble_list` / `scribble_redo_list` 구조 → Fabric.js JSON 스냅샷 방식으로 구현 (최대 50단계, `path:create` 이벤트마다 저장).
+
+3. **Gotenberg 백엔드 분리**: Windows는 win32com, Linux/Docker는 Gotenberg 선택적 사용. `GOTENBERG_URL` 환경변수로 활성화 여부 제어.
+
+4. **모바일 우선순위**: react-native-pdf-viewer가 NitroModules 기반으로 성능 우수. Flutter는 주석 커스터마이징 제약 있어 React Native 우선.
+
+---
+
 ## 참고 자료
 
 - [PDF.js 공식](https://mozilla.github.io/pdf.js/)
 - [Fabric.js 공식](http://fabricjs.com/)
+- [drauu (Slidev 드로잉)](https://github.com/antfu/drauu)
 - [PyMuPDF 문서](https://pymupdf.readthedocs.io/)
 - [python-pptx 문서](https://python-pptx.readthedocs.io/)
 - [google-genai SDK](https://googleapis.github.io/python-genai/)
+- [Gotenberg 문서](https://gotenberg.dev/)
 - 경쟁 앱: Slid, Notability, ExtraPPT Speaker Notes
