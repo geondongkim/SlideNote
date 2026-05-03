@@ -2,19 +2,24 @@
 슬라이드 PNG + 주석 래스터라이징 → PDF 내보내기
 
 전략:
-- Pillow로 PNG 이미지를 PDF 페이지로 합치기 (reportlab 필요 없이 Pillow JPEG2000 방식)
-- 주석 JSON(Fabric.js)은 Phase 2에서 HTML canvas → PNG로 합성 예정
-- Phase 1: 슬라이드 이미지만 PDF로 묶기
-- Phase 2-3: 유인물 레이아웃 (1up/2up/4up) — A4 기준, 노트 텍스트 포함
+- PDF 원본: original.pdf 직접 복사 → 텍스트/검색/하이퍼링크 완전 유지 (OCR 지원)
+- PPTX 원본: reportlab + python-pptx invisible text overlay → searchable PDF
+  * 슬라이드 PNG를 배경 이미지로, python-pptx로 추출한 텍스트를 render_mode=3(invisible)으로 overlay
+  * 위치는 EMU → px 스케일 변환으로 근사 매핑
+- 유인물 레이아웃: Pillow 이미지 기반 (1up/2up/4up) — A4 기준, 노트 텍스트 포함
 """
 from __future__ import annotations
 
 import json
+import logging
+import shutil
 import textwrap
 from pathlib import Path
 from typing import Literal
 
 from PIL import Image, ImageDraw, ImageFont
+
+logger = logging.getLogger(__name__)
 
 # A4 @ 150 DPI
 A4_W = 1240  # px (210mm)
@@ -23,6 +28,36 @@ MARGIN = 60   # px
 NOTE_LINE_H = 28  # px per line
 NOTE_FONT_SIZE = 18
 SLIDE_NOTE_GAP = 16
+
+_KOREAN_FONT_NAME: str | None = None
+_KOREAN_FONT_CHECKED = False
+
+
+def _get_korean_font_name() -> str | None:
+    """reportlab용 한글 폰트 등록 후 폰트 이름 반환. 없으면 None."""
+    global _KOREAN_FONT_NAME, _KOREAN_FONT_CHECKED
+    if _KOREAN_FONT_CHECKED:
+        return _KOREAN_FONT_NAME
+    _KOREAN_FONT_CHECKED = True
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        candidates = [
+            ("MalgunGothic", "malgun.ttf"),
+            ("MalgunGothic", r"C:\Windows\Fonts\malgun.ttf"),
+            ("NanumGothic", "NanumGothic.ttf"),
+            ("NotoSansCJK", "NotoSansCJK-Regular.ttc"),
+        ]
+        for name, path in candidates:
+            try:
+                pdfmetrics.registerFont(TTFont(name, path))
+                _KOREAN_FONT_NAME = name
+                return name
+            except Exception:
+                continue
+    except ImportError:
+        pass
+    return None
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -66,32 +101,124 @@ def _resize_slide(img: Image.Image, max_w: int, max_h: int) -> Image.Image:
     return img
 
 
-def export_to_pdf(slides_dir: Path, out_path: Path) -> Path:
-    """
-    uploads/{file_id}/slides/page_01.png ~ page_NN.png → out_path (PDF)
-    반환: out_path
-    """
+def _export_pdf_original(file_dir: Path, out_path: Path) -> Path:
+    """PDF 원본 복사 → 텍스트/검색/하이퍼링크 레이어 완전 유지."""
+    original = file_dir / "original.pdf"
+    if not original.exists():
+        raise FileNotFoundError(f"원본 PDF 없음: {original}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(original), str(out_path))
+    logger.info("PDF 원본 복사 완료: %s", out_path)
+    return out_path
+
+
+def _export_pptx_searchable(file_dir: Path, out_path: Path) -> Path:
+    """PPTX: 슬라이드 PNG 배경 + python-pptx invisible text overlay → searchable PDF."""
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    slides_dir = file_dir / "slides"
     png_files = sorted(slides_dir.glob("page_*.png"))
     if not png_files:
         raise FileNotFoundError(f"슬라이드 이미지 없음: {slides_dir}")
 
-    images = [Image.open(p).convert("RGB") for p in png_files]
-    first, rest = images[0], images[1:]
+    # python-pptx 텍스트 추출
+    prs = None
+    original_pptx = file_dir / "original.pptx"
+    if original_pptx.exists():
+        try:
+            from pptx import Presentation
+            prs = Presentation(str(original_pptx))
+        except Exception as e:
+            logger.warning("python-pptx 로드 실패: %s", e)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    first.save(
-        str(out_path),
-        "PDF",
-        save_all=True,
-        append_images=rest,
-        resolution=150,
-    )
+    font_name = _get_korean_font_name() or "Helvetica"
+
+    c = rl_canvas.Canvas(str(out_path))
+    for slide_idx, png_path in enumerate(png_files):
+        img = Image.open(png_path)
+        img_w, img_h = img.size
+        c.setPageSize((img_w, img_h))
+
+        # 배경: 슬라이드 PNG
+        c.drawImage(ImageReader(str(png_path)), 0, 0, img_w, img_h)
+
+        # Invisible text overlay
+        if prs is not None and slide_idx < len(prs.slides):
+            slide = prs.slides[slide_idx]
+            pptx_w = prs.slide_width   # EMU
+            pptx_h = prs.slide_height  # EMU
+            if pptx_w > 0 and pptx_h > 0:
+                scale_x = img_w / pptx_w
+                scale_y = img_h / pptx_h
+                for shape in slide.shapes:
+                    if not hasattr(shape, "text_frame"):
+                        continue
+                    tf = shape.text_frame
+                    if not tf.text.strip():
+                        continue
+                    # shape 위치 → PNG 좌표, PDF는 y=0이 하단
+                    sx = float(shape.left or 0) * scale_x
+                    sy_top = float(shape.top or 0) * scale_y
+                    sh = float(shape.height or 1) * scale_y
+                    pdf_y = img_h - sy_top - sh
+                    para_count = max(len(tf.paragraphs), 1)
+                    font_size = max(6, int(sh / para_count * 0.65))
+                    c.saveState()
+                    c.setFont(font_name, font_size)
+                    t = c.beginText(sx, pdf_y)
+                    t.setTextRenderMode(3)  # invisible: 검색·복사 가능, 화면에 미표시
+                    for para in tf.paragraphs:
+                        if para.text:
+                            t.textLine(para.text)
+                    c.drawText(t)
+                    c.restoreState()
+
+        c.showPage()
+
+    c.save()
+    logger.info("PPTX searchable PDF 생성 완료: %s (%d슬라이드)", out_path, len(png_files))
     return out_path
 
 
+def _export_images_pdf(slides_dir: Path, out_path: Path) -> Path:
+    """폴백: PNG 이미지들을 Pillow로 합쳐 PDF (텍스트 레이어 없음)."""
+    png_files = sorted(slides_dir.glob("page_*.png"))
+    if not png_files:
+        raise FileNotFoundError(f"슬라이드 이미지 없음: {slides_dir}")
+    images = [Image.open(p).convert("RGB") for p in png_files]
+    first, rest = images[0], images[1:]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    first.save(str(out_path), "PDF", save_all=True, append_images=rest, resolution=150)
+    return out_path
+
+
+def export_to_pdf(file_dir: Path, out_path: Path) -> Path:
+    """
+    검색 가능한(searchable) PDF 내보내기.
+    - PDF 원본: original.pdf 직접 복사 → 텍스트/검색 레이어 완전 유지
+    - PPTX 원본: 슬라이드 PNG + python-pptx invisible text overlay (reportlab)
+    반환: out_path
+    """
+    meta_path = file_dir / "metadata.json"
+    ext = ""
+    if meta_path.exists():
+        try:
+            ext = json.loads(meta_path.read_text(encoding="utf-8")).get("ext", "")
+        except Exception:
+            pass
+
+    if ext == ".pdf":
+        return _export_pdf_original(file_dir, out_path)
+    elif ext == ".pptx":
+        return _export_pptx_searchable(file_dir, out_path)
+    else:
+        return _export_images_pdf(file_dir / "slides", out_path)
+
+
 def export_handout(
-    slides_dir: Path,
-    notes_dir: Path,
+    file_dir: Path,
     out_path: Path,
     layout: Literal["1up", "2up", "4up"] = "2up",
 ) -> Path:
@@ -102,6 +229,9 @@ def export_handout(
     layout="2up": A4 1페이지에 슬라이드 2장 + 각 노트 영역 4줄
     layout="4up": A4 1페이지에 슬라이드 4장 (2×2 그리드, 요약 인쇄용)
     """
+    slides_dir = file_dir / "slides"
+    notes_dir = file_dir / "notes"
+
     png_files = sorted(slides_dir.glob("page_*.png"))
     if not png_files:
         raise FileNotFoundError(f"슬라이드 이미지 없음: {slides_dir}")

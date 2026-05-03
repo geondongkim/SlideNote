@@ -50,7 +50,7 @@
 
 ## Phase 1: MVP (2~3주)
 
-> **진행 상태 (2026-05-03)**: 1주차 백엔드/프론트 골격 구현 완료
+> **진행 상태 (2026-05-04)**: 1주차 백엔드/프론트 골격 구현 완료
 > - ✅ `services/converter.py` (pdf_to_pngs / pptx_to_pngs Windows·LibreOffice 분기)
 >   - **PPTX Windows COM 방식 확정**: `_win32_pptx_to_pngs` → Python subprocess (`sys.executable + 임시 .py`)
 >   - uvicorn 이벤트루프 스레드에서 `Visible=True` COM 오류(0x80048240) → 부모 window station 상속 subprocess로 해결
@@ -65,9 +65,16 @@
 >     | UX 동일성 | ✅ | ✅ |
 > - ✅ `routers/files.py` (`POST /api/files/upload`, `GET /{id}/slides`, 50MB 제한, file_id sanitize)
 > - ✅ `routers/notes.py` (`GET/PUT /api/notes/{file_id}/{page}` 파일 기반 JSON)
+> - ✅ `services/exporter.py` — **Searchable PDF 내보내기** (2026-05-04):
+>   - PDF 원본: `original.pdf` 직접 복사 → 텍스트/검색/하이퍼링크 레이어 완전 유지
+>   - PPTX 원본: reportlab + python-pptx invisible text overlay (render_mode=3)
+>     * EMU → px 좌표 변환으로 텍스트 위치 근사 매핑
+>     * 맑은고딕(malgun.ttf) 폰트 등록으로 한글 검색 지원
+>   - 다운로드 파일명: `slidenote_xxx.pdf` → 원본 파일명.pdf
+>   - 유인물(handout) 인터페이스: `file_dir` 단일 인수로 통일
 > - ✅ 프론트 `lib/api.js`, `store/useAppStore.js`, `components/UploadButton.jsx`, `SlideList.jsx`
 > - ✅ App.jsx 통합 + 노트 자동 저장 (500ms 디바운스)
-> - ⏭️ 다음: Fabric.js Canvas 주석, PDF 내보내기, 단위 테스트
+> - ⏭️ 다음: Fabric.js Canvas 주석, 단위 테스트
 
 ### 1-1. 백엔드 기반 (`src/backend/`)
 

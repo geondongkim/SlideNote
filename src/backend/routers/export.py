@@ -18,23 +18,42 @@ def _validate_id(file_id: str) -> str:
     return file_id
 
 
+def _get_meta(file_dir: Path) -> dict:
+    meta_path = file_dir / "metadata.json"
+    if meta_path.exists():
+        try:
+            return json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _safe_filename(name: str) -> str:
+    """Content-Disposition에 안전한 파일명 생성."""
+    return "".join(c if c.isalnum() or c in "._- ()가-힣" else "_" for c in name)
+
+
 @router.get("/{file_id}")
 def download_pdf(file_id: str):
     fid = _validate_id(file_id)
-    slides_dir = UPLOADS_DIR / fid / "slides"
-    if not slides_dir.exists():
+    file_dir = UPLOADS_DIR / fid
+    if not (file_dir / "slides").exists():
         raise HTTPException(404, "슬라이드를 찾을 수 없음")
 
-    out_path = UPLOADS_DIR / fid / "export.pdf"
+    meta = _get_meta(file_dir)
+    original_name = Path(meta.get("filename", "slidenote")).stem
+    download_name = _safe_filename(original_name) + ".pdf"
+
+    out_path = file_dir / "export.pdf"
     try:
-        export_to_pdf(slides_dir, out_path)
+        export_to_pdf(file_dir, out_path)
     except Exception as e:
         raise HTTPException(500, f"PDF 생성 실패: {e}")
 
     return FileResponse(
         str(out_path),
         media_type="application/pdf",
-        filename=f"slidenote_{fid[:8]}.pdf",
+        filename=download_name,
     )
 
 
@@ -45,21 +64,24 @@ def download_handout(
 ):
     """유인물 레이아웃 PDF 다운로드. layout=1up|2up|4up"""
     fid = _validate_id(file_id)
-    slides_dir = UPLOADS_DIR / fid / "slides"
-    notes_dir = UPLOADS_DIR / fid / "notes"
-    if not slides_dir.exists():
+    file_dir = UPLOADS_DIR / fid
+    if not (file_dir / "slides").exists():
         raise HTTPException(404, "슬라이드를 찾을 수 없음")
 
-    out_path = UPLOADS_DIR / fid / f"handout_{layout}.pdf"
+    meta = _get_meta(file_dir)
+    original_name = Path(meta.get("filename", "slidenote")).stem
+    download_name = _safe_filename(original_name) + f"_handout_{layout}.pdf"
+
+    out_path = file_dir / f"handout_{layout}.pdf"
     try:
-        export_handout(slides_dir, notes_dir, out_path, layout=layout)
+        export_handout(file_dir, out_path, layout=layout)
     except Exception as e:
         raise HTTPException(500, f"유인물 PDF 생성 실패: {e}")
 
     return FileResponse(
         str(out_path),
         media_type="application/pdf",
-        filename=f"slidenote_{fid[:8]}_handout_{layout}.pdf",
+        filename=download_name,
     )
 
 
