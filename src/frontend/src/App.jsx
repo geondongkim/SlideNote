@@ -246,7 +246,7 @@ export default function App() {
               {currentSlide} / {pageCount}
             </span>
           )}
-          {/* Firebase Auth 상태 */}}
+          {/* Firebase Auth 상태 */}
           {!authLoading && (
             user ? (
               <div className="flex items-center gap-2">
