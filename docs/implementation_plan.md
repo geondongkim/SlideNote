@@ -574,6 +574,13 @@ uploads/
 - [x] Firebase Storage 연동 (`useStorage.js`, `storage.rules` — Console에서 Storage 활성화 후 `firebase deploy --only storage` 실행)
 - [x] 다중 기기 세션 관리 (`useSession.js`, Firestore `sessions/{uid}/files/{fileId}`)
 
+### 발표 모드 (v1.3)
+- [x] `PresentationMode` 컴포넌트 — 전체화면 슬라이드 뷰어
+  - ←/→/Space 키 슬라이드 이동, ESC/종료 버튼으로 나가기
+  - `document.requestFullscreen()` API 연동
+  - 하단 컨트롤 바 (평소 투명 → hover 시 표시)
+- [x] 헤더 "▶ 발표" 버튼 (파일 업로드 시에만 표시)
+
 ---
 
 ## 오픈소스 참고 분석 요약

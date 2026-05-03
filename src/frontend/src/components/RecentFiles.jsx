@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchFiles, deleteFile } from '../lib/api'
 import { useAppStore } from '../store/useAppStore'
-import { fetchSlides } from '../lib/api'
 
 /**
  * 최근 파일 목록 — 초기 화면에 표시

@@ -11,6 +11,7 @@ import SlideList from './components/SlideList'
 import SlideViewer from './components/SlideViewer'
 import AudioPanel from './components/AudioPanel'
 import RecentFiles from './components/RecentFiles'
+import PresentationMode from './components/PresentationMode'
 
 export default function App() {
   const { fileId, currentSlide, pageCount, setCurrentSlide } = useAppStore()
@@ -19,6 +20,7 @@ export default function App() {
   const [summarizing, setSummarizing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [whiteboardPages, setWhiteboardPages] = useState(new Set())
+  const [presenting, setPresenting] = useState(false)
   const persistRef = useRef(null)
   const stampRef = useRef(null)   // useAudioRecorder.stamp → useAnnotation
 
@@ -120,6 +122,10 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
+      {/* 발표 모드 오버레이 */}
+      {presenting && (
+        <PresentationMode onExit={() => setPresenting(false)} />
+      )}
       {/* 헤더 */}
       <header className="flex items-center justify-between px-4 py-2 bg-gray-950 border-b border-gray-700 shrink-0">
         <span className="font-semibold text-white text-sm">SlideNote</span>
@@ -129,7 +135,7 @@ export default function App() {
               {currentSlide} / {pageCount}
             </span>
           )}
-          {/* Firebase Auth 상태 */}
+          {/* Firebase Auth 상태 */}}
           {!authLoading && (
             user ? (
               <div className="flex items-center gap-2">
@@ -158,6 +164,15 @@ export default function App() {
             )
           )}
           <UploadButton onSuccess={handleUploadSuccess} />
+          {fileId && (
+            <button
+              onClick={() => setPresenting(true)}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 text-white rounded transition-colors"
+              title="발표 모드 시작"
+            >
+              ▶ 발표
+            </button>
+          )}
         </div>
       </header>
 
