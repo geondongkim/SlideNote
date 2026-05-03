@@ -122,15 +122,20 @@ def _get_client():
     return genai.Client(api_key=api_key)
 
 
-def _call_model(client, gtypes, model: str, img_path: Path) -> tuple[str, str | None]:
-    """단일 모델 호출. 반환: (text, error_type|None)"""
-    from PIL import Image
+def _img_part(gtypes, img_path: Path):
+    """이미지 파일을 google-genai Part로 변환."""
+    img_bytes = img_path.read_bytes()
+    suffix = img_path.suffix.lower().lstrip(".")
+    mime = "image/png" if suffix == "png" else f"image/{suffix}"
+    return gtypes.Part.from_bytes(data=img_bytes, mime_type=mime)
 
+
+def _call_model(client, gtypes, model: str, img_path: Path) -> tuple[str, str | None]:
+    """단일 모델 호출 (요약용). 반환: (text, error_type|None)"""
     try:
-        img = Image.open(str(img_path))
         resp = client.models.generate_content(
             model=model,
-            contents=[img, SLIDE_PROMPT],
+            contents=[_img_part(gtypes, img_path), SLIDE_PROMPT],
             config=gtypes.GenerateContentConfig(
                 temperature=0.1,
                 max_output_tokens=8192,
@@ -166,14 +171,14 @@ async def summarize_slide(img_path: Path) -> str:
             raise RuntimeError(f"Gemini 오류: {err}")
         return text
 
-    # 동기 블로킹 함수를 이벤트 루프에서 실행
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _run)
 
 
 async def convert_slide_to_markdown(
     img_path: Path,
     pptx_path: Path | None = None,
+    pdf_path: Path | None = None,
     slide_index: int = 0,
 ) -> str:
     """
@@ -183,26 +188,26 @@ async def convert_slide_to_markdown(
     - summarize_slide: 내용을 3줄로 압축하는 '발표자 노트 요약'
     - convert_slide_to_markdown: 슬라이드의 모든 내용을 빠짐없이 변환하는 '원문 충실 변환'
 
-    pptx_path가 주어지면 python-pptx로 슬라이드 구조 메타데이터를 추출해
-    프롬프트에 보강한다 (인식 정확도 향상).
+    pptx_path 또는 pdf_path가 주어지면 텍스트를 추출해 프롬프트에 보강한다
+    (인식 정확도 향상). slide_index는 0-based.
     """
     from google.genai import types as gtypes
 
-    # PPTX 메타데이터 추출 (동기, 빠름)
+    # 소스 파일 메타데이터 추출 (동기, 빠름)
     extra_context = ""
     if pptx_path is not None and pptx_path.exists():
         try:
             extra_context = _extract_pptx_metadata(pptx_path, slide_index)
         except Exception as e:
             logger.warning("PPTX 메타데이터 추출 실패 (무시): %s", e)
+    elif pdf_path is not None and pdf_path.exists():
+        try:
+            extra_context = _extract_pdf_metadata(pdf_path, slide_index)
+        except Exception as e:
+            logger.warning("PDF 메타데이터 추출 실패 (무시): %s", e)
 
     def _run() -> str:
         client = _get_client()
-
-        img_bytes = img_path.read_bytes()
-        suffix = img_path.suffix.lower().lstrip(".")
-        mime = "image/png" if suffix == "png" else f"image/{suffix}"
-        img_part = gtypes.Part.from_bytes(data=img_bytes, mime_type=mime)
 
         # 메타데이터가 있으면 프롬프트 끝에 보강 컨텍스트 추가
         prompt = SLIDE_TO_MARKDOWN_PROMPT
@@ -213,7 +218,7 @@ async def convert_slide_to_markdown(
             try:
                 resp = client.models.generate_content(
                     model=model,
-                    contents=[img_part, prompt],
+                    contents=[_img_part(gtypes, img_path), prompt],
                     config=gtypes.GenerateContentConfig(
                         temperature=0.1,
                         max_output_tokens=8192,
@@ -239,7 +244,7 @@ async def convert_slide_to_markdown(
             raise RuntimeError(f"Gemini Markdown 변환 오류: {err}")
         return text
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _run)
 
 
@@ -264,8 +269,37 @@ def _extract_pptx_metadata(pptx_path: Path, slide_index: int) -> str:
                     lines.append(f"- {t}")
         elif shape.has_table:
             tbl = shape.table
-            lines.append(f"[표: {tbl._tbl.tr_lst.__len__()}행 x {len(tbl.columns)}열]")
+            lines.append(f"[표: {len(tbl.rows)}행 x {len(tbl.columns)}열]")
             for row in tbl.rows:
                 row_texts = [cell.text.strip() for cell in row.cells]
                 lines.append("  | " + " | ".join(row_texts) + " |")
+    return "\n".join(lines)
+
+
+def _extract_pdf_metadata(pdf_path: Path, page_index: int) -> str:
+    """PyMuPDF로 PDF 페이지 텍스트 추출 (0-based index).
+
+    텍스트 블록을 Gemini 프롬프트에 주입해 인식 정확도를 높인다.
+    스캔 PDF(텍스트 레이어 없음)는 빈 문자열 반환.
+    """
+    import fitz  # PyMuPDF
+
+    doc = fitz.open(str(pdf_path))
+    if page_index >= len(doc):
+        doc.close()
+        return ""
+
+    page = doc[page_index]
+    # 텍스트 블록 추출: (x0, y0, x1, y1, text, block_no, block_type)
+    blocks = page.get_text("blocks")
+    doc.close()
+
+    lines: list[str] = []
+    for block in sorted(blocks, key=lambda b: (b[1], b[0])):  # y→x 순 정렬
+        text = block[4].strip()
+        if text:
+            # 줄바꿈 정규화 (멀티라인 블록을 단일 불릿으로)
+            single_line = " ".join(text.split())
+            lines.append(f"- {single_line}")
+
     return "\n".join(lines)
