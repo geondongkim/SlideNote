@@ -1,0 +1,22 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // notes 컬렉션: 로그인한 사용자만 본인 노트 접근 가능
+    match /notes/{noteId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == resource.data.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+    }
+
+    // sessions 컬렉션: 로그인한 사용자만 본인 세션 접근
+    match /sessions/{sessionId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == resource.data.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+    }
+  }
+}

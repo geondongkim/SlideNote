@@ -4,7 +4,7 @@
  * 주석 스키마: id(uuid), _pageRatio([w,h]), _timestamp(null) — 변경 금지
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { fabric } from 'fabric'
+import * as fabric from 'fabric'
 import { v4 as uuidv4 } from 'uuid'
 import { saveNote, fetchNote } from '../lib/api'
 

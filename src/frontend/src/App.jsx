@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from './store/useAppStore'
 import { fetchNote, summarizeSlide, downloadHandout } from './lib/api'
 import { useAudioRecorder } from './hooks/useAudioRecorder'
+import { useAuth } from './hooks/useAuth'
+import { useFirestore } from './hooks/useFirestore'
 import UploadButton from './components/UploadButton'
 import SlideList from './components/SlideList'
 import SlideViewer from './components/SlideViewer'
@@ -16,6 +18,21 @@ export default function App() {
   const [whiteboardPages, setWhiteboardPages] = useState(new Set())
   const persistRef = useRef(null)
   const stampRef = useRef(null)   // useAudioRecorder.stamp → useAnnotation
+
+  // Firebase Auth
+  const { user, loading: authLoading, login, logout } = useAuth()
+
+  // Firestore 원격 업데이트 수신 (다른 기기에서 변경됐을 때)
+  const handleRemoteUpdate = useCallback((text, _annotations) => {
+    setNoteText((prev) => (prev !== text ? text : prev))
+  }, [])
+
+  const { syncNote } = useFirestore(
+    user?.uid ?? null,
+    fileId,
+    currentSlide,
+    handleRemoteUpdate
+  )
 
   const audio = useAudioRecorder(fileId, currentSlide)
   // stampRef를 통해 useAnnotation이 녹음 중 시점을 기록
@@ -58,7 +75,7 @@ export default function App() {
     }
   }
 
-  // 노트 텍스트 디바운스 자동 저장 (주석은 persistRef로)
+  // 노트 텍스트 디바운스 자동 저장 (주석은 persistRef로) + Firestore 동기화
   useEffect(() => {
     if (!fileId) return
     const t = setTimeout(async () => {
@@ -67,12 +84,16 @@ export default function App() {
         if (persistRef.current) {
           await persistRef.current(noteText)
         }
+        // 로그인 상태일 때만 Firestore에도 동기화
+        if (user) {
+          await syncNote(noteText, {})
+        }
       } finally {
         setSaving(false)
       }
     }, 500)
     return () => clearTimeout(t)
-  }, [noteText, fileId, currentSlide])
+  }, [noteText, fileId, currentSlide, user, syncNote])
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
@@ -84,6 +105,34 @@ export default function App() {
             <span className="text-xs text-gray-400">
               {currentSlide} / {pageCount}
             </span>
+          )}
+          {/* Firebase Auth 상태 */}
+          {!authLoading && (
+            user ? (
+              <div className="flex items-center gap-2">
+                <img
+                  src={user.photoURL}
+                  alt={user.displayName}
+                  className="w-6 h-6 rounded-full"
+                />
+                <span className="text-xs text-gray-300 max-w-[100px] truncate">
+                  {user.displayName}
+                </span>
+                <button
+                  onClick={logout}
+                  className="text-xs text-gray-400 hover:text-white transition-colors"
+                >
+                  로그아웃
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={login}
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+              >
+                Google 로그인
+              </button>
+            )
           )}
           <UploadButton />
         </div>
@@ -116,7 +165,12 @@ export default function App() {
         <aside className="w-80 bg-gray-900 border-l border-gray-700 p-4 flex flex-col shrink-0">
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-sm font-semibold text-gray-300">노트 ({currentSlide}페이지)</h2>
-            <span className="text-[10px] text-gray-500">{saving ? '저장 중…' : '자동 저장'}</span>
+            <div className="flex items-center gap-1">
+              {user && (
+                <span className="text-[10px] text-blue-400">☁ 동기화</span>
+              )}
+              <span className="text-[10px] text-gray-500">{saving ? '저장 중…' : '자동 저장'}</span>
+            </div>
           </div>
 
           <textarea

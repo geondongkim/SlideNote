@@ -368,12 +368,35 @@ def export_handout(
 
 ## Phase 3: 동기화 & 배포 (8주+)
 
-### Firebase 연동
+> **진행 상태 (2026-05-03)**: Firebase 기본 동기화 구현 완료
+
+### Firebase 연동 ✅ (부분 완료)
 
 ```
-노트/주석 → Firestore (실시간 sync)
-파일      → Firebase Storage
-인증      → Firebase Auth (Google 로그인)
+노트/주석 → Firestore (실시간 sync)  ✅
+파일      → Firebase Storage          ⏳ (미구현)
+인증      → Firebase Auth (Google)    ✅ (Console에서 공급자 활성화 필요)
+```
+
+**구현 완료**:
+- Firebase 프로젝트: `slidenote-2026` (Tokyo 리전: `asia-northeast1`)
+- 프로젝트 파일: `firebase.json`, `.firebaserc`, `firestore.rules`, `firestore.indexes.json`
+- `src/frontend/src/lib/firebase.js` — `initializeApp`, `getFirestore`, `getAuth`
+- `src/frontend/src/hooks/useAuth.js` — Google 팝업 로그인, `onAuthStateChanged`
+- `src/frontend/src/hooks/useFirestore.js` — Firestore `setDoc` + `onSnapshot` 실시간 동기화
+  - 문서 ID: `{uid}_{fileId}_{page}` 형태로 사용자·파일·페이지별 격리
+- `App.jsx` 업데이트 — 헤더 Google 로그인 버튼, 노트 패널 `☁ 동기화` 상태 표시
+
+**활성화 필요** (Firebase Console 수동):
+```
+https://console.firebase.google.com/project/slidenote-2026/authentication/providers
+→ Google 공급자 활성화
+```
+
+**Firestore 보안 규칙** (`firestore.rules`):
+```
+notes/{noteId}   → uid 일치하는 로그인 사용자만 읽기/쓰기
+sessions/{id}    → uid 일치하는 로그인 사용자만 읽기/쓰기
 ```
 
 ### Gotenberg 기반 PPTX 변환 서버 (Linux/Mac 배포 시)
@@ -488,33 +511,51 @@ uploads/
 ## 개발 우선순위 체크리스트
 
 ### 1주차
-- [ ] FastAPI 프로젝트 초기화
-- [ ] `converter.py`: `pdf_to_pngs()` 구현 (PyMuPDF)
-- [ ] `converter.py`: `pptx_to_pngs()` 구현 (win32com + LibreOffice fallback)
-- [ ] `/api/files/upload` 엔드포인트
+- [x] FastAPI 프로젝트 초기화
+- [x] `converter.py`: `pdf_to_pngs()` 구현 (PyMuPDF)
+- [x] `converter.py`: `pptx_to_pngs()` 구현 (win32com + LibreOffice fallback)
+- [x] `/api/files/upload` 엔드포인트
 
 ### 2주차
-- [ ] React + Vite 프론트엔드 초기화
-- [ ] 3단 레이아웃 (`SlideList` + `SlideViewer` + `NoteEditor`)
-- [ ] Fabric.js Canvas 통합 (펜, 형광펜)
-- [ ] **Undo/Redo 스택 구현** (pympress scribble_list 패턴 — 스냅샷 방식, 최대 50단계)
-- [ ] **주석 좌표 정규화** (pdfanno `_pageRatio` 패턴 — 뷰포트 비율로 저장)
-- [ ] 노트 저장/불러오기 (`/api/notes`)
+- [x] React + Vite 프론트엔드 초기화
+- [x] 3단 레이아웃 (`SlideList` + `SlideViewer` + `NoteEditor`)
+- [x] Fabric.js Canvas 통합 (펜, 형광펜)
+- [x] **Undo/Redo 스택 구현** (pympress scribble_list 패턴 — 스냅샷 방식, 최대 50단계)
+- [x] **주석 좌표 정규화** (pdfanno `_pageRatio` 패턴 — 뷰포트 비율로 저장)
+- [x] 노트 저장/불러오기 (`/api/notes`)
 
 ### 3주차
-- [ ] 주석 도구 (도형, 텍스트 박스)
-- [ ] PDF 내보내기 (주석 레이어 병합)
+- [x] 주석 도구 (도형, 텍스트 박스)
+- [x] PDF 내보내기 (주석 레이어 병합)
 - [ ] 파일 목록 / 최근 파일 관리
 
 ### 4주차 (AI)
-- [ ] `gemini.py`: `call_gemini_smart()` 구현
-- [ ] `/api/ai/summarize` 엔드포인트
-- [ ] NoteEditor에 "AI 요약" 버튼 연동
+- [x] `gemini.py`: `call_gemini_smart()` 구현
+- [x] `/api/ai/summarize` 엔드포인트
+- [x] NoteEditor에 "AI 요약" 버튼 연동
 
 ### 5~6주차 (오디오)
-- [ ] MediaRecorder API 연동
-- [ ] 필기 timestamp 저장
-- [ ] 오디오 재생 컨트롤러
+- [x] MediaRecorder API 연동
+- [x] 필기 timestamp 저장
+- [x] 오디오 재생 컨트롤러
+
+### 7~8주차 (유인물 & 화이트보드)
+- [x] 유인물 레이아웃 PDF 내보내기 (1up/2up/4up + 한글 노트)
+- [x] 화이트보드 빈 페이지 삽입 (`POST /api/files/{id}/whiteboard`)
+- [x] Fabric.js 화이트보드 모드 (황색 배너, 자유 드로잉)
+
+### 9~10주차 (Firebase 동기화)
+- [x] Firebase 프로젝트 생성 (`slidenote-2026`, Tokyo 리전)
+- [x] Firestore 데이터베이스 생성 + 보안 규칙 배포
+- [x] Firebase SDK 설치 (`firebase` npm 패키지)
+- [x] `lib/firebase.js` — `initializeApp`, `getFirestore`, `getAuth`
+- [x] `hooks/useAuth.js` — Google 로그인/로그아웃, `onAuthStateChanged`
+- [x] `hooks/useFirestore.js` — `setDoc` + `onSnapshot` 실시간 동기화
+- [x] `App.jsx` — 헤더 로그인 버튼, 노트 패널 "☁ 동기화" 상태 표시
+- [ ] Firebase Console에서 **Google 인증 공급자 활성화** (수동 필요)
+  - https://console.firebase.google.com/project/slidenote-2026/authentication/providers
+- [ ] Firebase Storage 연동 (파일 업로드 클라우드 저장)
+- [ ] 다중 기기 세션 관리 (파일 ID → 사용자별 세션 저장)
 
 ---
 
