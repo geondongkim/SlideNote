@@ -2,7 +2,10 @@ import { useState } from 'react'
 import { uploadFile } from '../lib/api'
 import { useAppStore } from '../store/useAppStore'
 
-export default function UploadButton() {
+/**
+ * @param {{ onSuccess?: (file: File, meta: object) => void }} props
+ */
+export default function UploadButton({ onSuccess }) {
   const setFile = useAppStore((s) => s.setFile)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -15,6 +18,7 @@ export default function UploadButton() {
     try {
       const meta = await uploadFile(file)
       setFile(meta.fileId, meta.pageCount)
+      onSuccess?.(file, meta)
     } catch (err) {
       setError(err.response?.data?.detail || err.message)
     } finally {

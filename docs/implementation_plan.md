@@ -368,14 +368,16 @@ def export_handout(
 
 ## Phase 3: 동기화 & 배포 (8주+)
 
-> **진행 상태 (2026-05-03)**: Firebase 기본 동기화 구현 완료
+> **진행 상태 (2026-05-08)**: Firebase 전체 동기화 구현 완료
 
-### Firebase 연동 ✅ (부분 완료)
+### Firebase 연동 ✅ (구현 완료)
 
 ```
-노트/주석 → Firestore (실시간 sync)  ✅
-파일      → Firebase Storage          ⏳ (미구현)
-인증      → Firebase Auth (Google)    ✅ (Console에서 공급자 활성화 필요)
+노트/주석 → Firestore (실시간 sync)                  ✅
+파일      → Firebase Storage (useStorage.js)         ✅ (Console에서 Storage 활성화 필요)
+인증      → Firebase Auth (Google)                   ✅ (Console에서 공급자 활성화 필요)
+세션      → Firestore sessions/{uid}/files/{fileId}  ✅
+파일목록  → GET /api/files + RecentFiles 컴포넌트     ✅
 ```
 
 **구현 완료**:
@@ -395,8 +397,23 @@ https://console.firebase.google.com/project/slidenote-2026/authentication/provid
 
 **Firestore 보안 규칙** (`firestore.rules`):
 ```
-notes/{noteId}   → uid 일치하는 로그인 사용자만 읽기/쓰기
-sessions/{id}    → uid 일치하는 로그인 사용자만 읽기/쓰기
+notes/{noteId}              → uid 일치하는 로그인 사용자만 읽기/쓰기
+sessions/{uid}/files/{fid}  → uid 경로 일치하는 로그인 사용자만 읽기/쓰기
+```
+
+**Firebase Storage 보안 규칙** (`storage.rules`):
+```
+users/{uid}/** → uid 일치하는 로그인 사용자만 읽기/쓰기
+```
+
+**수동 활성화 필요** (Firebase Console):
+```
+https://console.firebase.google.com/project/slidenote-2026/authentication/providers
+→ Google 공급자 활성화
+
+https://console.firebase.google.com/project/slidenote-2026/storage
+→ Firebase Storage 활성화 → Get Started
+→ 이후: firebase deploy --only storage
 ```
 
 ### Gotenberg 기반 PPTX 변환 서버 (Linux/Mac 배포 시)
@@ -527,7 +544,7 @@ uploads/
 ### 3주차
 - [x] 주석 도구 (도형, 텍스트 박스)
 - [x] PDF 내보내기 (주석 레이어 병합)
-- [ ] 파일 목록 / 최근 파일 관리
+- [x] 파일 목록 / 최근 파일 관리 (`GET /api/files`, `DELETE /api/files/{id}`, `RecentFiles` 컴포넌트)
 
 ### 4주차 (AI)
 - [x] `gemini.py`: `call_gemini_smart()` 구현
@@ -554,8 +571,8 @@ uploads/
 - [x] `App.jsx` — 헤더 로그인 버튼, 노트 패널 "☁ 동기화" 상태 표시
 - [ ] Firebase Console에서 **Google 인증 공급자 활성화** (수동 필요)
   - https://console.firebase.google.com/project/slidenote-2026/authentication/providers
-- [ ] Firebase Storage 연동 (파일 업로드 클라우드 저장)
-- [ ] 다중 기기 세션 관리 (파일 ID → 사용자별 세션 저장)
+- [x] Firebase Storage 연동 (`useStorage.js`, `storage.rules` — Console에서 Storage 활성화 후 `firebase deploy --only storage` 실행)
+- [x] 다중 기기 세션 관리 (`useSession.js`, Firestore `sessions/{uid}/files/{fileId}`)
 
 ---
 

@@ -173,6 +173,9 @@ SlideNote/
 | Method | Path | 설명 |
 |--------|------|------|
 | `POST` | `/api/files/upload` | PPTX/PDF 업로드 → 슬라이드 PNG 생성 |
+| `GET` | `/api/files` | 업로드된 파일 목록 (최신순) |
+| `GET` | `/api/files/{file_id}` | 파일 메타데이터 조회 |
+| `DELETE` | `/api/files/{file_id}` | 파일 삭제 |
 | `GET` | `/api/files/{file_id}/slides` | 슬라이드 목록 반환 |
 | `GET` | `/api/notes/{file_id}/{page}` | 특정 슬라이드 노트 조회 |
 | `PUT` | `/api/notes/{file_id}/{page}` | 노트 + 주석 저장 |
@@ -209,6 +212,8 @@ SlideNote/
 - [x] **v1.0** — 화이트보드 모드 (빈 페이지 삽입 + Fabric.js 자유 드로잉)
 - [x] **v1.1** — Firebase 동기화 (Google 로그인 + Firestore 실시간 노트 동기화)
   > Google Auth 공급자 활성화 필요: https://console.firebase.google.com/project/slidenote-2026/authentication/providers
+- [x] **v1.2** — 파일 목록/삭제 + Firebase Storage + Firestore 세션 관리 (useSession.js, useStorage.js)
+  > Firebase Storage 활성화 필요: https://console.firebase.google.com/project/slidenote-2026/storage
 
 ---
 

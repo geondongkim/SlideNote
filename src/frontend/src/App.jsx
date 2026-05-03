@@ -4,10 +4,13 @@ import { fetchNote, summarizeSlide, downloadHandout } from './lib/api'
 import { useAudioRecorder } from './hooks/useAudioRecorder'
 import { useAuth } from './hooks/useAuth'
 import { useFirestore } from './hooks/useFirestore'
+import { useStorage } from './hooks/useStorage'
+import { useSession } from './hooks/useSession'
 import UploadButton from './components/UploadButton'
 import SlideList from './components/SlideList'
 import SlideViewer from './components/SlideViewer'
 import AudioPanel from './components/AudioPanel'
+import RecentFiles from './components/RecentFiles'
 
 export default function App() {
   const { fileId, currentSlide, pageCount, setCurrentSlide } = useAppStore()
@@ -21,6 +24,26 @@ export default function App() {
 
   // Firebase Auth
   const { user, loading: authLoading, login, logout } = useAuth()
+
+  // Firebase Storage + Firestore Session
+  const { uploadToStorage } = useStorage(user?.uid ?? null)
+  const { saveSession } = useSession(user?.uid ?? null)
+
+  // 파일 업로드 성공 콜백 — Storage + Firestore 세션 저장
+  const handleUploadSuccess = useCallback(
+    async (file, meta) => {
+      if (!user) return
+      const storageUrl = await uploadToStorage(file, meta.fileId).catch(() => null)
+      await saveSession({
+        fileId: meta.fileId,
+        filename: meta.filename,
+        pageCount: meta.pageCount,
+        ext: meta.ext,
+        ...(storageUrl ? { storageUrl } : {}),
+      })
+    },
+    [user, uploadToStorage, saveSession]
+  )
 
   // Firestore 원격 업데이트 수신 (다른 기기에서 변경됐을 때)
   const handleRemoteUpdate = useCallback((text, _annotations) => {
@@ -134,7 +157,7 @@ export default function App() {
               </button>
             )
           )}
-          <UploadButton />
+          <UploadButton onSuccess={handleUploadSuccess} />
         </div>
       </header>
 
@@ -154,11 +177,8 @@ export default function App() {
             whiteboardPages={whiteboardPages}
           />
         ) : (
-          <main className="flex-1 flex items-center justify-center bg-gray-800">
-            <div className="text-center text-gray-400">
-              <p className="text-2xl mb-4">SlideNote</p>
-              <p className="text-sm">상단 버튼으로 PPTX 또는 PDF를 업로드하세요</p>
-            </div>
+          <main className="flex-1 bg-gray-800 overflow-y-auto">
+            <RecentFiles />
           </main>
         )}
 

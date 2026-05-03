@@ -66,4 +66,13 @@ export const insertWhiteboardPage = async (fileId) => {
   return data  // { page, url, pageCount }
 }
 
+export const fetchFiles = async () => {
+  const { data } = await api.get('/files')
+  return data  // [{ fileId, filename, pageCount, uploadedAt, thumbnail }, ...]
+}
+
+export const deleteFile = async (fileId) => {
+  await api.delete(`/files/${fileId}`)
+}
+
 export default api

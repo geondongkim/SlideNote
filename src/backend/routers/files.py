@@ -66,6 +66,36 @@ async def upload_file(file: UploadFile):
     return metadata
 
 
+@router.get("")
+def list_files():
+    """uploads/ 아래 모든 파일의 메타데이터 목록 반환 (최신순)"""
+    if not UPLOADS_DIR.exists():
+        return []
+    result = []
+    for meta_path in UPLOADS_DIR.glob("*/metadata.json"):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            # 첫 슬라이드 썸네일 URL
+            fid = meta.get("fileId", meta_path.parent.name)
+            thumb = f"/uploads/{fid}/slides/page_01.png"
+            result.append({**meta, "thumbnail": thumb})
+        except Exception:
+            continue
+    result.sort(key=lambda m: m.get("uploadedAt", ""), reverse=True)
+    return result
+
+
+@router.delete("/{file_id}")
+def delete_file(file_id: str):
+    """파일 및 관련 데이터 삭제"""
+    fid = _safe_id(file_id)
+    file_dir = UPLOADS_DIR / fid
+    if not file_dir.exists():
+        raise HTTPException(404, "파일을 찾을 수 없음")
+    shutil.rmtree(file_dir)
+    return {"deleted": file_id}
+
+
 @router.get("/{file_id}")
 def get_file_meta(file_id: str):
     meta = UPLOADS_DIR / _safe_id(file_id) / "metadata.json"
