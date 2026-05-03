@@ -511,6 +511,196 @@ import { PdfViewer } from 'react-native-pdf-viewer';
 
 ---
 
+## UX 개선 (v1.5) — 사이드바 과밀·탐색 불편 해소
+
+> **진단**: 우측 w-80 사이드바에 7가지 기능이 세로로 쌓여 노트 영역 압박 + 스크롤 없이는
+> 하단 버튼 접근 불가. 현재 파일명 맥락 없음, 전환 피드백 없음, 첫 사용 진입점 불명확.
+
+### UX-1. 사이드바 탭 UI 분리 ★★★
+
+**변경 파일**: `App.jsx`
+
+**목적**: 우측 aside 320px 전체를 탭별로 독점 사용 → textarea 공간 3배 확보, 기능 목적 명확화
+
+```
+[노트] [내보내기] [오디오]  ← 탭 헤더 (항상 고정)
+─────────────────────────
+노트 탭:
+  textarea (h-full)
+  AI 요약 결과 (접힌 상태 기본)
+  AI 요약 생성 버튼
+
+내보내기 탭:
+  PDF 내보내기
+  유인물 1up / 2up / 4up
+  노트 Markdown 내보내기
+  ─ 구분선 ─
+  슬라이드 Markdown 변환
+    · 변환 중 프로그레스 바
+    · Obsidian/Notion 최적화 안내
+
+오디오 탭:
+  AudioPanel (전체 높이 사용)
+```
+
+**구현 포인트**:
+- `activeTab: 'note' | 'export' | 'audio'` — `useState('note')`
+- 탭 버튼 className: 활성 `border-b-2 border-blue-500 text-white` / 비활성 `text-gray-400`
+- 오디오 녹음 중(`recording === true`) + 비오디오 탭 → 오디오 탭 버튼에 `●` 빨간 dot 표시
+- 탭 내용은 `{activeTab === 'note' && <...>}` 조건부 렌더링 (unmount 방지 필요 시 `hidden` class 토글)
+
+### UX-2. 헤더 파일명 표시 ★★★
+
+**변경 파일**: `store/useAppStore.js`, `App.jsx`, `components/RecentFiles.jsx`, `components/UploadButton.jsx`
+
+**목적**: "SlideNote" + "7 / 22" 만 있는 헤더에 현재 파일명 추가 → 다중 파일 전환 시 맥락 제공
+
+```jsx
+// 헤더 변경 후
+<span className="font-semibold text-white text-sm">SlideNote</span>
+{filename && (
+  <span className="text-gray-400 text-xs truncate max-w-[200px] ml-2" title={filename}>
+    / {filename}
+  </span>
+)}
+```
+
+**스토어 변경**:
+```js
+// useAppStore.js
+filename: '',
+setFile: (fileId, pageCount, filename = '') => set({ fileId, pageCount, currentSlide: 1, filename }),
+```
+
+**연결 지점**:
+- `RecentFiles.handleOpen(fileId, pageCount, filename)` → `setFile(fileId, pageCount, f.filename)`
+- `UploadButton` onSuccess 콜백: `meta.filename` → `handleUploadSuccess(file, meta)` → `setFile(..., meta.filename)`
+
+### UX-3. 슬라이드 전환 로딩 스켈레톤 ★★☆
+
+**변경 파일**: `components/SlideViewer.jsx`
+
+**목적**: 슬라이드 이미지 교체 시 순간 회색 배경 노출 → 스켈레톤으로 "로딩 중" 의도 표현
+
+```jsx
+// SlideViewer.jsx 핵심 변경
+const [imgLoaded, setImgLoaded] = useState(false)
+
+useEffect(() => {
+  setImgLoaded(false)   // 슬라이드 변경 시마다 리셋
+}, [fileId, currentSlide])
+
+// 렌더
+<div className="relative inline-block shadow-2xl">
+  {!imgLoaded && (
+    <div
+      className="absolute inset-0 bg-gray-700 animate-pulse rounded z-10"
+      style={{ aspectRatio: '16/9', minWidth: 400 }}
+    />
+  )}
+  <img
+    ref={imgRef}
+    src={slideUrl}
+    onLoad={() => { setImgLoaded(true); onImageLoad() }}
+    className={`block max-h-[calc(100vh-9rem)] max-w-full transition-opacity duration-150 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+  />
+  <canvas ... />
+</div>
+```
+
+**주의**: `onImageLoad`(annotation resize 트리거)는 `imgLoaded = true` 와 동시에 호출해야 canvas 크기 동기화됨.
+
+### UX-4. 오디오 패널 접기/펼치기 ★★☆
+
+**변경 파일**: `components/AudioPanel.jsx`
+
+**목적**: 녹음 미사용 시 패널이 노트 공간 압박 → 기본 접힘, 클릭 시 펼침
+
+```jsx
+// AudioPanel.jsx 변경
+const [collapsed, setCollapsed] = useState(true)
+
+return (
+  <div className="mt-3 border border-gray-600 rounded">
+    <button
+      onClick={() => setCollapsed(c => !c)}
+      className="w-full flex items-center justify-between px-2 py-1.5 text-[10px] text-orange-400 font-medium"
+    >
+      <span>오디오 녹음</span>
+      <span>{collapsed ? '▶' : '▼'}</span>
+    </button>
+    {!collapsed && (
+      <div className="px-2 pb-2">
+        {/* 기존 녹음 컨트롤 내용 */}
+      </div>
+    )}
+  </div>
+)
+```
+
+**탭 분리(UX-1) 이후**: 오디오 탭 내에서도 동일하게 적용 (탭 전환 자체가 접기 역할을 하므로 중요도 낮아짐)
+
+### UX-5. 초기 화면 업로드 CTA ★☆☆
+
+**변경 파일**: `components/RecentFiles.jsx`
+
+**목적**: 파일 없는 초기 화면에서 업로드 버튼이 헤더 우측에만 있어 첫 사용자가 놓침 → 중앙 CTA 추가
+
+```jsx
+// files.length === 0 일 때 빈 상태 UI
+<div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4">
+  <p className="text-3xl">📂</p>
+  <p className="text-sm">최근 열었던 파일이 없습니다</p>
+  <label className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded cursor-pointer transition-colors">
+    PPTX / PDF 업로드
+    <input
+      type="file"
+      accept=".pptx,.pdf"
+      className="hidden"
+      onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])}
+    />
+  </label>
+  <p className="text-xs text-gray-500">또는 상단 업로드 버튼 사용</p>
+</div>
+```
+
+**연결**: `onUpload` prop을 `App.jsx`에서 `UploadButton`의 업로드 로직과 공유 (중복 구현 방지).
+`uploadFile(file)` → `handleUploadSuccess(file, meta)` → `setFile` 순서 그대로 재사용.
+
+### UX-6. Toolbar 단축키 툴팁 ★☆☆
+
+**변경 파일**: `components/Toolbar.jsx`, `App.jsx`
+
+**목적**: ←/→ 외 도구 단축키 존재 자체를 사용자가 모름 → `title` 속성 + 키 핸들러 등록
+
+**Toolbar.jsx 변경**:
+```js
+const TOOLS = [
+  { id: 'select',    label: '선택',   icon: '↖',  shortcut: 'V' },
+  { id: 'pen',       label: '펜',     icon: '✏️',  shortcut: 'P' },
+  { id: 'highlight', label: '형광펜', icon: '🖌',  shortcut: 'H' },
+  { id: 'text',      label: '텍스트', icon: 'T',   shortcut: 'T' },
+  { id: 'arrow',     label: '화살표', icon: '→',   shortcut: 'A' },
+]
+
+// 버튼 title 속성
+title={`${t.label} (${t.shortcut})`}
+```
+
+**App.jsx 키 핸들러 확장** (기존 ←/→ 핸들러에 추가):
+```js
+const TOOL_SHORTCUTS = { v: 'select', p: 'pen', h: 'highlight', t: 'text', a: 'arrow' }
+// handler 내부
+const key = e.key.toLowerCase()
+if (TOOL_SHORTCUTS[key] && !e.ctrlKey && !e.metaKey) {
+  // setTool은 annotation에 있으므로 전역 이벤트로 dispatch 또는 annotation ref 경유
+}
+```
+
+**구현 선택**: `useAnnotation`이 반환하는 `setTool`을 `App.jsx`에서 ref로 받거나, `CustomEvent`로 툴 변경 이벤트 발행.
+
+---
+
 ## 파일 저장 구조
 
 ```
@@ -602,7 +792,68 @@ uploads/
   - `document.requestFullscreen()` API 연동
   - 하단 컨트롤 바 (평소 투명 → hover 시 표시)
 - [x] 헤더 "▶ 발표" 버튼 (파일 업로드 시에만 표시)
+### UX 개선 (v1.5) — 사이드바/탐색 답답함 해소
 
+> **배경**: 우측 사이드바(w-80)에 노트·AI 요약·오디오·내보내기 버튼이 세로로 과밀 적재됨.
+> 현재 파일명 맥락 없음, 슬라이드 전환 피드백 없음, 첫 사용자 진입점 불명확 등 복합 원인.
+
+#### 핵심 (★★★) — 사이드바 탭 UI 분리
+- [ ] `App.jsx` 우측 aside: 탭 상태(`activeTab`) 추가 — `'note' | 'export' | 'audio'`
+- [ ] 탭 헤더 3개 버튼: **노트** / **내보내기** / **오디오** (각 탭 내용만 표시, 나머지 `hidden`)
+  - 노트 탭: textarea + AI 요약 결과 + "AI 요약 생성" 버튼
+  - 내보내기 탭: PDF 내보내기, 유인물(1up/2up/4up), 노트 Markdown, 슬라이드 Markdown 변환
+  - 오디오 탭: `<AudioPanel />`
+- [ ] 탭 전환으로 각 탭이 전체 `h-full`을 사용 → textarea 공간이 탭 높이 전체로 확보됨
+- [ ] 기본 활성 탭은 `'note'` (파일 열면 노트 탭 자동 포커스)
+- [ ] 탭 버튼에 오디오 녹음 중 상태 점 표시 (`recording && activeTab !== 'audio'` 시 빨간 dot)
+
+#### 핵심 (★★★) — 헤더에 현재 파일명 표시
+- [ ] `useAppStore`에 `filename: ''` 상태 추가, `setFile(fileId, pageCount, filename)` 시그니처 확장
+- [ ] `RecentFiles.handleOpen` → `setFile(fileId, pageCount, f.filename)` 전달
+- [ ] `UploadButton.onSuccess` 콜백 → `meta.filename` 전달
+- [ ] `App.jsx` 헤더: `SlideNote` 텍스트 옆에 `filename` 표시
+  ```jsx
+  <span className="text-gray-400 text-xs truncate max-w-[200px]" title={filename}>
+    {filename}
+  </span>
+  ```
+
+#### 보조 (★★☆) — 슬라이드 전환 로딩 스켈레톤
+- [ ] `SlideViewer.jsx`: `imgLoaded` 상태 추가 (`useState(false)`)
+- [ ] `currentSlide` 변경 시 `imgLoaded = false` 리셋 (`useEffect`)
+- [ ] `<img onLoad={() => setImgLoaded(true)} />` 핸들러 연결
+- [ ] `!imgLoaded` 상태일 때 슬라이드 이미지 위치에 스켈레톤 표시:
+  ```jsx
+  <div className="absolute inset-0 bg-gray-700 animate-pulse rounded" />
+  ```
+- [ ] 이미지 로드 완료 시 스켈레톤 제거 (fade 없이 즉시 교체로 충분)
+
+#### 보조 (★★☆) — 오디오 패널 접기/펼치기 토글
+- [ ] `AudioPanel.jsx`: `collapsed` 상태 추가 (기본값 `true`)
+- [ ] 패널 헤더에 토글 버튼 추가 (`▶ 오디오 녹음` / `▼ 오디오 녹음`)
+- [ ] `collapsed` 시 헤더만 표시, 내용 영역 `hidden`
+- [ ] 오디오 탭 분리 후에도 탭 안에서 동일하게 적용
+
+#### 보조 (★☆☆) — 초기 화면 업로드 CTA
+- [ ] `RecentFiles.jsx` — 파일 없을 때(`files.length === 0`) 표시하는 빈 상태에 업로드 버튼 추가:
+  ```jsx
+  <label className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded cursor-pointer">
+    PPTX / PDF 업로드
+    <input type="file" accept=".pptx,.pdf" className="hidden" onChange={handleFileSelect} />
+  </label>
+  ```
+- [ ] `handleFileSelect`: `UploadButton`의 업로드 로직을 `lib/api.js`의 `uploadFile`로 직접 호출
+- [ ] 파일 업로드 후 `useAppStore.setFile()` 호출하여 즉시 뷰어로 전환
+
+#### 보조 (★☆☆) — Toolbar 단축키 툴팁
+- [ ] `Toolbar.jsx` TOOLS 배열에 `shortcut` 필드 추가:
+  ```js
+  { id: 'select', label: '선택', icon: '↖', shortcut: 'V' },
+  { id: 'pen',    label: '펜',   icon: '✏️', shortcut: 'P' },
+  ...
+  ```
+- [ ] `title` 속성을 `${label} (${shortcut})` 형식으로 변경 → 브라우저 기본 툴팁 활용
+- [ ] `App.jsx` 키보드 핸들러에 `V/P/H/T/A` 단축키 추가 (textarea 포커스 시 비활성화 조건 이미 있음)
 ---
 
 ## 오픈소스 참고 분석 요약
