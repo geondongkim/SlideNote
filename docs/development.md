@@ -26,10 +26,13 @@ cd SlideNote
 
 ---
 
-## 환경 변수 설정 (.env)
+## 환경 변수 설정
 
-`.env` 파일은 **프로젝트 루트**(`SlideNote/`)에 만들어야 합니다.  
-(`src/backend/` 아님 — `main.py`가 루트 `.env`를 자동 로드)
+이 프로젝트에는 `.env` 파일이 **두 곳** 필요합니다.
+
+### 1. 백엔드 — 프로젝트 루트 (`SlideNote/.env`)
+
+`main.py`가 프로젝트 루트의 `.env`를 자동 로드합니다 (`src/backend/` 아님):
 
 ```bash
 # SlideNote/.env
@@ -38,6 +41,31 @@ GOOGLE_API_KEY=AIzaSy...          # Gemini Vision API 키 (AI 기능 사용 시 
 ```
 
 > **API 키 발급**: [Google AI Studio](https://aistudio.google.com/apikey) → "Create API key"
+
+### 2. 프론트엔드 — `src/frontend/.env`
+
+Firebase 설정값입니다. 예시 파일을 복사해서 시작하세요:
+
+```bash
+cp src/frontend/.env.example src/frontend/.env
+# 이후 실제 값으로 채우기
+```
+
+```bash
+# src/frontend/.env
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your_project_id
+VITE_FIREBASE_STORAGE_BUCKET=your_project_id.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+```
+
+**값 확인 방법**: [Firebase 콘솔](https://console.firebase.google.com) → 해당 프로젝트 → 프로젝트 설정 → "내 앱" → SDK 설정 및 구성 → `firebaseConfig` 객체
+
+> **`VITE_` 접두사**: Vite 빌드 시 클라이언트 번들에 포함됩니다. Firebase Web API 키는 클라이언트 공개용 키이므로 노출이 허용됩니다. 보안은 `firestore.rules` / `storage.rules`로 관리합니다.
+
+> **두 `.env` 모두 `.gitignore`에 의해 커밋에서 제외됩니다.** 실수로 push하지 않도록 주의하세요.
 
 ---
 
