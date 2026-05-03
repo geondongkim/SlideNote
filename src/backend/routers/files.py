@@ -21,6 +21,39 @@ ALLOWED_EXT = {".pdf", ".pptx"}
 MAX_BYTES = 50 * 1024 * 1024  # 50MB
 
 
+"""파일 업로드 / 슬라이드 메타 조회"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import shutil
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
+from PIL import Image
+
+from services.converter import pdf_to_pngs, pptx_to_pngs
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+UPLOADS_DIR = Path("uploads")
+ALLOWED_EXT = {".pdf", ".pptx"}
+MAX_BYTES = 50 * 1024 * 1024  # 50MB
+
+# 변환 진행 상태 저장소 (메모리, 단일 프로세스)
+_conversion_progress: dict[str, dict] = {}
+
+
+def _sse(data: dict) -> str:
+    import json as _json
+    return f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 @router.post("/upload")
 async def upload_file(file: UploadFile):
     ext = Path(file.filename or "").suffix.lower()
@@ -42,6 +75,9 @@ async def upload_file(file: UploadFile):
                 raise HTTPException(413, f"파일 크기 초과 (최대 {MAX_BYTES // 1024 // 1024}MB)")
             f.write(chunk)
 
+    # 변환 상태 초기화
+    _conversion_progress[file_id] = {"status": "converting", "page": 0, "total": 0}
+
     slides_dir = file_dir / "slides"
     try:
         if ext == ".pdf":
@@ -49,6 +85,7 @@ async def upload_file(file: UploadFile):
         else:
             pages = pptx_to_pngs(original, slides_dir)
     except Exception as e:
+        _conversion_progress[file_id] = {"status": "error", "message": str(e)}
         logger.exception("변환 실패")
         shutil.rmtree(file_dir, ignore_errors=True)
         raise HTTPException(500, f"변환 실패: {e}")
@@ -63,7 +100,45 @@ async def upload_file(file: UploadFile):
     (file_dir / "metadata.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    _conversion_progress[file_id] = {"status": "done", "page": len(pages), "total": len(pages)}
     return metadata
+
+
+@router.get("/upload/{file_id}/progress")
+async def upload_progress(file_id: str):
+    """SSE 스트림 — 변환 진행 상황 실시간 전송"""
+    fid = _safe_id(file_id)
+
+    async def event_stream():
+        # 메타데이터가 이미 완성됐으면 즉시 완료 반환
+        meta_path = UPLOADS_DIR / fid / "metadata.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            yield _sse({"status": "done", "page": meta["pageCount"], "total": meta["pageCount"]})
+            return
+
+        for _ in range(120):  # 최대 60초 대기
+            state = _conversion_progress.get(fid, {"status": "waiting"})
+            yield _sse(state)
+            if state.get("status") in ("done", "error"):
+                return
+            # 슬라이드 파일 개수를 직접 세서 진행률 계산
+            slides_dir = UPLOADS_DIR / fid / "slides"
+            if slides_dir.exists():
+                done_pages = len(list(slides_dir.glob("page_*.png")))
+                _conversion_progress[fid] = {
+                    **state,
+                    "page": done_pages,
+                }
+            await asyncio.sleep(0.5)
+
+        yield _sse({"status": "timeout"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("")

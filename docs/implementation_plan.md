@@ -574,7 +574,11 @@ uploads/
 - [x] Firebase Storage 연동 (`useStorage.js`, `storage.rules` — Console에서 Storage 활성화 후 `firebase deploy --only storage` 실행)
 - [x] 다중 기기 세션 관리 (`useSession.js`, Firestore `sessions/{uid}/files/{fileId}`)
 
-### 발표 모드 (v1.3)
+### 업로드 진행률 + 노트 내보내기 (v1.4)
+- [x] `GET /api/files/upload/{file_id}/progress` — SSE 스트림 (변환 증간수 실시간 전송)
+- [x] `UploadButton` 진행률 바 UI (업로드 진행 중 페이지 카운트 표시)
+- [x] `GET /api/export/{file_id}/notes.md` — 전체 슬라이드 노트 Markdown 파일로 다운로드
+- [x] 우측 패널 “표 Markdown 내보내기” 버튼 추가
 - [x] `PresentationMode` 컴포넌트 — 전체화면 슬라이드 뷰어
   - ←/→/Space 키 슬라이드 이동, ESC/종료 버튼으로 나가기
   - `document.requestFullscreen()` API 연동

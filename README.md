@@ -186,6 +186,8 @@ SlideNote/
 | `GET` | `/api/audio/{file_id}/{page}/file` | 오디오 스트리밍 반환 |
 | `GET` | `/api/export/{file_id}` | 슬라이드 PDF 내보내기 |
 | `GET` | `/api/export/{file_id}/handout?layout=2up` | 유인물 레이아웃 PDF (1up/2up/4up) |
+| `GET` | `/api/export/{file_id}/notes.md` | 전체 슬라이드 노트 Markdown 내보내기 |
+| `GET` | `/api/files/upload/{file_id}/progress` | 변환 진행률 SSE 스트림 |
 | `POST` | `/api/files/{file_id}/whiteboard` | 빈 페이지 삽입 (화이트보드) |
 
 ---
@@ -216,6 +218,7 @@ SlideNote/
 - [x] **v1.2** — 파일 목록/삭제 + Firebase Storage + Firestore 세션 관리 (useSession.js, useStorage.js)
   > Firebase Storage 활성화 필요: https://console.firebase.google.com/project/slidenote-2026/storage
 - [x] **v1.3** — 발표 모드 (PresentationMode: 전체화면 + 화살표 키 네비게이션 + ESC 종료)
+- [x] **v1.4** — 노트 Markdown 내보내기 (`GET /api/export/{id}/notes.md`) + 업로드 진행률 표시 (SSE + 진행률 바)
 
 ---
 

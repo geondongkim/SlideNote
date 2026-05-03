@@ -75,4 +75,33 @@ export const deleteFile = async (fileId) => {
   await api.delete(`/files/${fileId}`)
 }
 
+export const downloadNotesMarkdown = (fileId, filename = 'notes') => {
+  const url = `/api/export/${fileId}/notes.md`
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}_notes.md`
+  a.click()
+}
+
+/**
+ * 업로드 후 SSE 진행률 구독
+ * @param {string} fileId
+ * @param {(state: {status:string, page:number, total:number}) => void} onProgress
+ * @returns {() => void} cleanup 함수
+ */
+export const subscribeUploadProgress = (fileId, onProgress) => {
+  const es = new EventSource(`/api/files/upload/${fileId}/progress`)
+  es.onmessage = (e) => {
+    try {
+      const state = JSON.parse(e.data)
+      onProgress(state)
+      if (state.status === 'done' || state.status === 'error' || state.status === 'timeout') {
+        es.close()
+      }
+    } catch {/* ignore */}
+  }
+  es.onerror = () => es.close()
+  return () => es.close()
+}
+
 export default api

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from './store/useAppStore'
-import { fetchNote, summarizeSlide, downloadHandout } from './lib/api'
+import { fetchNote, summarizeSlide, downloadHandout, downloadNotesMarkdown } from './lib/api'
 import { useAudioRecorder } from './hooks/useAudioRecorder'
 import { useAuth } from './hooks/useAuth'
 import { useFirestore } from './hooks/useFirestore'
@@ -256,6 +256,12 @@ export default function App() {
                   </button>
                 ))}
               </div>
+              <button
+                onClick={() => downloadNotesMarkdown(fileId)}
+                className="block w-full text-center bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm py-1 rounded"
+              >
+                📝 노트 Markdown 내보내기
+              </button>
             </div>
           )}
         </aside>
