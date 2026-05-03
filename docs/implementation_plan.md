@@ -798,62 +798,32 @@ uploads/
 > 현재 파일명 맥락 없음, 슬라이드 전환 피드백 없음, 첫 사용자 진입점 불명확 등 복합 원인.
 
 #### 핵심 (★★★) — 사이드바 탭 UI 분리
-- [ ] `App.jsx` 우측 aside: 탭 상태(`activeTab`) 추가 — `'note' | 'export' | 'audio'`
-- [ ] 탭 헤더 3개 버튼: **노트** / **내보내기** / **오디오** (각 탭 내용만 표시, 나머지 `hidden`)
-  - 노트 탭: textarea + AI 요약 결과 + "AI 요약 생성" 버튼
-  - 내보내기 탭: PDF 내보내기, 유인물(1up/2up/4up), 노트 Markdown, 슬라이드 Markdown 변환
-  - 오디오 탭: `<AudioPanel />`
-- [ ] 탭 전환으로 각 탭이 전체 `h-full`을 사용 → textarea 공간이 탭 높이 전체로 확보됨
-- [ ] 기본 활성 탭은 `'note'` (파일 열면 노트 탭 자동 포커스)
-- [ ] 탭 버튼에 오디오 녹음 중 상태 점 표시 (`recording && activeTab !== 'audio'` 시 빨간 dot)
+- [x] `App.jsx` 우측 aside: 탭 상태(`activeTab`) 추가 — `'note' | 'export' | 'audio'`
+- [x] 탭 헤더 3개 버튼: **노트** / **내보내기** / **오디오** (각 탭 내용만 표시)
+- [x] 기본 활성 탭은 `'note'`
 
 #### 핵심 (★★★) — 헤더에 현재 파일명 표시
-- [ ] `useAppStore`에 `filename: ''` 상태 추가, `setFile(fileId, pageCount, filename)` 시그니처 확장
-- [ ] `RecentFiles.handleOpen` → `setFile(fileId, pageCount, f.filename)` 전달
-- [ ] `UploadButton.onSuccess` 콜백 → `meta.filename` 전달
-- [ ] `App.jsx` 헤더: `SlideNote` 텍스트 옆에 `filename` 표시
-  ```jsx
-  <span className="text-gray-400 text-xs truncate max-w-[200px]" title={filename}>
-    {filename}
-  </span>
-  ```
+- [x] `useAppStore`에 `filename: ''` 상태 추가, `setFile` 시그니처 확장
+- [x] `RecentFiles.handleOpen`, `UploadButton.onSuccess` 에서 filename 전달
+- [x] `App.jsx` 헤더에 `/ {filename}` 표시
 
 #### 보조 (★★☆) — 슬라이드 전환 로딩 스켈레톤
-- [ ] `SlideViewer.jsx`: `imgLoaded` 상태 추가 (`useState(false)`)
-- [ ] `currentSlide` 변경 시 `imgLoaded = false` 리셋 (`useEffect`)
-- [ ] `<img onLoad={() => setImgLoaded(true)} />` 핸들러 연결
-- [ ] `!imgLoaded` 상태일 때 슬라이드 이미지 위치에 스켈레톤 표시:
-  ```jsx
-  <div className="absolute inset-0 bg-gray-700 animate-pulse rounded" />
-  ```
-- [ ] 이미지 로드 완료 시 스켈레톤 제거 (fade 없이 즉시 교체로 충분)
+- [x] `SlideViewer.jsx`: `imgLoaded` state + `animate-pulse` 스켈레톤 오버레이
+- [x] `currentSlide` 변경 시 `imgLoaded = false` 리셋
 
 #### 보조 (★★☆) — 오디오 패널 접기/펼치기 토글
-- [ ] `AudioPanel.jsx`: `collapsed` 상태 추가 (기본값 `true`)
-- [ ] 패널 헤더에 토글 버튼 추가 (`▶ 오디오 녹음` / `▼ 오디오 녹음`)
-- [ ] `collapsed` 시 헤더만 표시, 내용 영역 `hidden`
-- [ ] 오디오 탭 분리 후에도 탭 안에서 동일하게 적용
+- [x] `AudioPanel.jsx`: `collapsed` state (기본 `false`) + 토글 헤더 버튼
 
 #### 보조 (★☆☆) — 초기 화면 업로드 CTA
-- [ ] `RecentFiles.jsx` — 파일 없을 때(`files.length === 0`) 표시하는 빈 상태에 업로드 버튼 추가:
-  ```jsx
-  <label className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded cursor-pointer">
-    PPTX / PDF 업로드
-    <input type="file" accept=".pptx,.pdf" className="hidden" onChange={handleFileSelect} />
-  </label>
-  ```
-- [ ] `handleFileSelect`: `UploadButton`의 업로드 로직을 `lib/api.js`의 `uploadFile`로 직접 호출
-- [ ] 파일 업로드 후 `useAppStore.setFile()` 호출하여 즉시 뷰어로 전환
+- [x] `RecentFiles.jsx`: 빈 상태에 "PPTX / PDF 업로드" label+input 버튼 추가
+- [x] `handleCTAUpload`: `uploadFile` 직접 호출 → `setFile()` 즉시 전환
 
 #### 보조 (★☆☆) — Toolbar 단축키 툴팁
-- [ ] `Toolbar.jsx` TOOLS 배열에 `shortcut` 필드 추가:
-  ```js
-  { id: 'select', label: '선택', icon: '↖', shortcut: 'V' },
-  { id: 'pen',    label: '펜',   icon: '✏️', shortcut: 'P' },
-  ...
-  ```
-- [ ] `title` 속성을 `${label} (${shortcut})` 형식으로 변경 → 브라우저 기본 툴팁 활용
-- [ ] `App.jsx` 키보드 핸들러에 `V/P/H/T/A` 단축키 추가 (textarea 포커스 시 비활성화 조건 이미 있음)
+- [x] `Toolbar.jsx` TOOLS 배열에 `shortcut` 필드 + `title` 속성 업데이트
+- [x] `App.jsx` 키보드 핸들러에 V/P/H/T/A 단축키, `setToolRef`로 SlideViewer 브릿지
+
+> **구현 완료 (commit 49da015)**
+
 ---
 
 ## 오픈소스 참고 분석 요약
