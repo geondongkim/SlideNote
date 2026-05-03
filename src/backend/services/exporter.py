@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
+import platform
+import re
 import shutil
 import textwrap
 from pathlib import Path
@@ -32,9 +34,83 @@ SLIDE_NOTE_GAP = 16
 _KOREAN_FONT_NAME: str | None = None
 _KOREAN_FONT_CHECKED = False
 
+# (우선순위, 등록명, 파일명 정규식(소문자), TTC subfont index)
+_KOREAN_FONT_PRIORITY: list[tuple[int, str, str, int]] = [
+    (0, "MalgunGothic",   r"^malgun\.ttf$",              0),
+    (1, "MalgunGothicBd", r"^malgunbd\.ttf$",            0),
+    (2, "NanumGothic",    r"^nanumgothic\.ttf$",         0),
+    (3, "NanumMyeongjo",  r"^nanummyeongjo\.ttf$",       0),
+    (4, "Batang",         r"^batang\.ttc$",              0),
+    (5, "Gulim",          r"^gulim\.ttc$",               0),
+    (6, "Dotum",          r"^dotum\.ttc$",               0),
+    (7, "NotoSansCJK",    r"notosanscjk.*\.(ttf|ttc|otf)$", 0),
+]
+
+
+def _find_korean_font_paths() -> list[tuple[str, str, int]]:
+    """시스템 폰트 디렉토리를 탐색해 한글 폰트 (등록명, 절대경로, ttc_index) 목록을 우선순위 순으로 반환."""
+    sys_name = platform.system()
+    if sys_name == "Windows":
+        font_dirs = [
+            Path(r"C:\Windows\Fonts"),
+            Path.home() / "AppData" / "Local" / "Microsoft" / "Windows" / "Fonts",
+        ]
+    elif sys_name == "Darwin":
+        font_dirs = [
+            Path("/Library/Fonts"),
+            Path("/System/Library/Fonts"),
+            Path.home() / "Library" / "Fonts",
+        ]
+    else:
+        font_dirs = [
+            Path("/usr/share/fonts"),
+            Path("/usr/local/share/fonts"),
+            Path.home() / ".fonts",
+            Path.home() / ".local" / "share" / "fonts",
+        ]
+
+    # 폰트 파일 수집 (Windows는 flat 디렉토리, 나머지는 재귀)
+    all_fonts: list[Path] = []
+    exts = ("*.ttf", "*.ttc", "*.otf")
+    for d in font_dirs:
+        if not d.exists():
+            continue
+        for ext in exts:
+            if sys_name == "Windows":
+                all_fonts.extend(d.glob(ext))
+            else:
+                all_fonts.extend(d.rglob(ext))
+
+    # 중복 경로 제거
+    seen_paths: set[str] = set()
+    unique_fonts: list[Path] = []
+    for f in all_fonts:
+        key = str(f.resolve()).lower()
+        if key not in seen_paths:
+            seen_paths.add(key)
+            unique_fonts.append(f)
+
+    logger.debug("시스템 폰트 파일 탐색: %d개", len(unique_fonts))
+
+    # 우선순위 패턴과 매칭
+    matched: list[tuple[int, str, str, int]] = []
+    seen_names: set[str] = set()
+    for font_path in unique_fonts:
+        fname_lower = font_path.name.lower()
+        for priority, name, pattern, ttc_idx in _KOREAN_FONT_PRIORITY:
+            if name not in seen_names and re.search(pattern, fname_lower):
+                matched.append((priority, name, str(font_path), ttc_idx))
+                seen_names.add(name)
+                break
+
+    matched.sort(key=lambda x: x[0])
+    result = [(name, path, idx) for _, name, path, idx in matched]
+    logger.info("한글 폰트 후보 발견 (%d개): %s", len(result), [(n, p) for n, p, _ in result])
+    return result
+
 
 def _get_korean_font_name() -> str | None:
-    """reportlab용 한글 폰트 등록 후 폰트 이름 반환. 없으면 None."""
+    """시스템 폰트 탐색 → reportlab 등록 → 폰트 이름 반환. 없으면 None."""
     global _KOREAN_FONT_NAME, _KOREAN_FONT_CHECKED
     if _KOREAN_FONT_CHECKED:
         return _KOREAN_FONT_NAME
@@ -42,21 +118,29 @@ def _get_korean_font_name() -> str | None:
     try:
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
-        candidates = [
-            ("MalgunGothic", "malgun.ttf"),
-            ("MalgunGothic", r"C:\Windows\Fonts\malgun.ttf"),
-            ("NanumGothic", "NanumGothic.ttf"),
-            ("NotoSansCJK", "NotoSansCJK-Regular.ttc"),
-        ]
-        for name, path in candidates:
+
+        candidates = _find_korean_font_paths()
+        if not candidates:
+            logger.warning("시스템에서 한글 폰트를 찾지 못함 — invisible text 레이어 미적용")
+            return None
+
+        for name, path, ttc_idx in candidates:
             try:
-                pdfmetrics.registerFont(TTFont(name, path))
+                ext = Path(path).suffix.lower()
+                if ext == ".ttc":
+                    pdfmetrics.registerFont(TTFont(name, path, subfontIndex=ttc_idx))
+                else:
+                    pdfmetrics.registerFont(TTFont(name, path))
                 _KOREAN_FONT_NAME = name
+                logger.info("한글 폰트 등록 성공: %s (%s)", name, path)
                 return name
-            except Exception:
+            except Exception as e:
+                logger.debug("폰트 등록 실패 %s: %s", path, e)
                 continue
+
+        logger.warning("한글 폰트 등록 실패 — invisible text 레이어 미적용")
     except ImportError:
-        pass
+        logger.warning("reportlab 없음 — PDF 내보내기 불가")
     return None
 
 
@@ -133,7 +217,7 @@ def _export_pptx_searchable(file_dir: Path, out_path: Path) -> Path:
             logger.warning("python-pptx 로드 실패: %s", e)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    font_name = _get_korean_font_name() or "Helvetica"
+    font_name = _get_korean_font_name()  # None이면 invisible text 레이어 스킵
 
     c = rl_canvas.Canvas(str(out_path))
     for slide_idx, png_path in enumerate(png_files):
@@ -144,8 +228,8 @@ def _export_pptx_searchable(file_dir: Path, out_path: Path) -> Path:
         # 배경: 슬라이드 PNG
         c.drawImage(ImageReader(str(png_path)), 0, 0, img_w, img_h)
 
-        # Invisible text overlay
-        if prs is not None and slide_idx < len(prs.slides):
+        # Invisible text overlay (한글 폰트 등록 성공 시에만 적용)
+        if prs is not None and slide_idx < len(prs.slides) and font_name:
             slide = prs.slides[slide_idx]
             pptx_w = prs.slide_width   # EMU
             pptx_h = prs.slide_height  # EMU
@@ -158,11 +242,11 @@ def _export_pptx_searchable(file_dir: Path, out_path: Path) -> Path:
                     tf = shape.text_frame
                     if not tf.text.strip():
                         continue
-                    # shape 위치 → PNG 좌표, PDF는 y=0이 하단
+                    # shape 위치 → PDF 좌표 (PDF y=0이 하단 → 상단 기준으로 변환)
                     sx = float(shape.left or 0) * scale_x
                     sy_top = float(shape.top or 0) * scale_y
                     sh = float(shape.height or 1) * scale_y
-                    pdf_y = img_h - sy_top - sh
+                    pdf_y = img_h - sy_top          # shape 상단 기준 (더 정확한 검색 커서 위치)
                     para_count = max(len(tf.paragraphs), 1)
                     font_size = max(6, int(sh / para_count * 0.65))
                     c.saveState()
@@ -170,8 +254,13 @@ def _export_pptx_searchable(file_dir: Path, out_path: Path) -> Path:
                     t = c.beginText(sx, pdf_y)
                     t.setTextRenderMode(3)  # invisible: 검색·복사 가능, 화면에 미표시
                     for para in tf.paragraphs:
-                        if para.text:
+                        if not para.text:
+                            continue
+                        try:
                             t.textLine(para.text)
+                        except (UnicodeEncodeError, Exception) as _te:
+                            # 인코딩 불가 문자(특수기호 등) → 해당 단락 스킵, 나머지 계속
+                            logger.debug("textLine 스킵 (슬라이드 %d): %s", slide_idx + 1, _te)
                     c.drawText(t)
                     c.restoreState()
 
