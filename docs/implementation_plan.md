@@ -28,7 +28,7 @@
 |----------------|------|----------|
 | `PyMuPDF` | PDF → PNG | 44페이지 변환 완료, DPI 150 최적 |
 | `python-pptx` | PPTX 메타 추출 | 22슬라이드 구조 분석 완료 |
-| `pywin32` | PPTX → PNG (Windows) | 1920px 고품질 출력 검증 |
+| `pywin32` | PPTX → PNG (Windows) | 1920px 고품질 출력 검증 (Python subprocess 방식으로 COM STA 충돌 해결) |
 | `google-genai` | Gemini Vision AI | 3종 모델 비교 완료 |
 
 ### 렌더링 전략
@@ -52,6 +52,17 @@
 
 > **진행 상태 (2026-05-03)**: 1주차 백엔드/프론트 골격 구현 완료
 > - ✅ `services/converter.py` (pdf_to_pngs / pptx_to_pngs Windows·LibreOffice 분기)
+>   - **PPTX Windows COM 방식 확정**: `_win32_pptx_to_pngs` → Python subprocess (`sys.executable + 임시 .py`)
+>   - uvicorn 이벤트루프 스레드에서 `Visible=True` COM 오류(0x80048240) → 부모 window station 상속 subprocess로 해결
+>   - 성능 측정 완료 (2026-05-03):
+>     | 항목 | PDF | PPTX |
+>     |------|-----|------|
+>     | 파일 크기 | 1.41 MB | 20.77 MB |
+>     | 페이지/슬라이드 | 22 | 22 |
+>     | 업로드+변환 시간 | 2.15–4.06초 | 16.14초 |
+>     | MB/s | 0.35–0.66 | 1.29 |
+>     | 초/페이지 | 0.10–0.18 | 0.73 |
+>     | UX 동일성 | ✅ | ✅ |
 > - ✅ `routers/files.py` (`POST /api/files/upload`, `GET /{id}/slides`, 50MB 제한, file_id sanitize)
 > - ✅ `routers/notes.py` (`GET/PUT /api/notes/{file_id}/{page}` 파일 기반 JSON)
 > - ✅ 프론트 `lib/api.js`, `store/useAppStore.js`, `components/UploadButton.jsx`, `SlideList.jsx`
