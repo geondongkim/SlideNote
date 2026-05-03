@@ -11,7 +11,7 @@ import { saveNote, fetchNote } from '../lib/api'
 const BRUSH_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ffffff', '#000000']
 const MAX_HISTORY = 50
 
-export function useAnnotation(canvasRef, fileId, page) {
+export function useAnnotation(canvasRef, fileId, page, stampRef) {
   const fabricRef = useRef(null)
   const historyRef = useRef([])   // pympress: scribble_list
   const redoRef = useRef([])      // pympress: scribble_redo_list
@@ -39,6 +39,11 @@ export function useAnnotation(canvasRef, fileId, page) {
       if (!obj.id) obj.id = uuidv4()
       if (!obj._pageRatio) obj._pageRatio = [...pageRatioRef.current]
       if (!obj._timestamp) obj._timestamp = null
+      // 녹음 중이면 현재 시점 기록
+      if (stampRef?.current && obj.id) {
+        const elapsed = stampRef.current(obj.id)
+        if (elapsed != null) obj._timestamp = elapsed
+      }
       _saveSnapshot()
     })
 

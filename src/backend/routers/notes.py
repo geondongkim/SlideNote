@@ -17,6 +17,8 @@ class Note(BaseModel):
     text: str = ""
     annotations: dict[str, Any] = Field(default_factory=dict)
     ai_summary: str = ""
+    audio_url: str = ""
+    audio_timestamps: dict[str, float] = Field(default_factory=dict)
 
 
 def _note_path(file_id: str, page: int) -> Path:

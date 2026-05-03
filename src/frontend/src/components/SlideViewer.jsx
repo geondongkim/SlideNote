@@ -8,12 +8,12 @@ import { useAppStore } from '../store/useAppStore'
 import { useAnnotation } from '../hooks/useAnnotation'
 import Toolbar from './Toolbar'
 
-export default function SlideViewer({ persistRef }) {
+export default function SlideViewer({ persistRef, stampRef }) {
   const { fileId, currentSlide } = useAppStore()
   const imgRef = useRef(null)
   const canvasRef = useRef(null)
 
-  const annotation = useAnnotation(canvasRef, fileId, currentSlide)
+  const annotation = useAnnotation(canvasRef, fileId, currentSlide, stampRef)
 
   // App이 노트 저장 시 persistAnnotations 호출 가능하도록 ref 연결
   useEffect(() => {

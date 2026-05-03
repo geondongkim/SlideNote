@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from './store/useAppStore'
 import { fetchNote, summarizeSlide } from './lib/api'
+import { useAudioRecorder } from './hooks/useAudioRecorder'
 import UploadButton from './components/UploadButton'
 import SlideList from './components/SlideList'
 import SlideViewer from './components/SlideViewer'
+import AudioPanel from './components/AudioPanel'
 
 export default function App() {
   const { fileId, currentSlide, pageCount, setCurrentSlide } = useAppStore()
@@ -12,6 +14,11 @@ export default function App() {
   const [summarizing, setSummarizing] = useState(false)
   const [saving, setSaving] = useState(false)
   const persistRef = useRef(null)
+  const stampRef = useRef(null)   // useAudioRecorder.stamp → useAnnotation
+
+  const audio = useAudioRecorder(fileId, currentSlide)
+  // stampRef를 통해 useAnnotation이 녹음 중 시점을 기록
+  stampRef.current = audio.recording ? audio.stamp : null
 
   // 슬라이드 변경 시 노트 + AI 요약 로드
   useEffect(() => {
@@ -87,7 +94,7 @@ export default function App() {
         </aside>
 
         {fileId ? (
-          <SlideViewer persistRef={persistRef} />
+          <SlideViewer persistRef={persistRef} stampRef={stampRef} />
         ) : (
           <main className="flex-1 flex items-center justify-center bg-gray-800">
             <div className="text-center text-gray-400">
@@ -126,6 +133,9 @@ export default function App() {
           >
             {summarizing ? 'AI 요약 생성 중…' : 'AI 요약 생성'}
           </button>
+
+          {/* 오디오 녹음 패널 */}
+          {fileId && <AudioPanel />}
 
           {fileId && (
             <a
