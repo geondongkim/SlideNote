@@ -41,22 +41,75 @@ Markdown 형식으로만 출력하세요. 마크다운 코드블록(```) 래퍼 
 # AI 요약(SLIDE_PROMPT)과의 차이:
 #   SLIDE_PROMPT  → 3줄 핵심 요약 + 발표 포인트 (내용 압축)
 #   SLIDE_TO_MARKDOWN_PROMPT → 슬라이드에 있는 모든 텍스트/표/다이어그램을 빠짐없이 구조화
-SLIDE_TO_MARKDOWN_PROMPT = """이 슬라이드에 보이는 모든 내용을 **원문에 충실하게** Markdown으로 변환하세요.
+SLIDE_TO_MARKDOWN_PROMPT = """다음 슬라이드 이미지를 Markdown으로 변환하세요.
 요약하거나 내용을 줄이지 마세요. 슬라이드에 있는 텍스트는 모두 포함해야 합니다.
 
-변환 규칙:
-1. 슬라이드 제목/큰 헤딩 → `## 제목`
-2. 소제목/섹션 → `### 소제목`
-3. 본문 텍스트 계층 → 들여쓰기에 따라 `- ` / `  - ` 불릿
-4. 표 → GFM 마크다운 표 형식 (`| 헤더 | 헤더 |\\n|---|---|\\n| 값 | 값 |`)
-5. 흐름도/순서도/아키텍처 다이어그램 → Mermaid graph TD 코드블록
-6. 시퀀스 다이어그램 → Mermaid sequenceDiagram 코드블록
-7. 강조 박스/콜아웃 → `> 내용` (인용 형식)
-8. 코드/명령어 → 인라인 `` `코드` `` 또는 코드블록
-9. 이미지·차트만 있고 텍스트 없는 경우 → `[차트: 간단한 설명]`
-10. 슬라이드 하단 출처/각주도 포함
+## 변환 규칙
+
+### 1. 헤딩
+- 슬라이드 제목 → `## 제목`
+- 섹션 부제목 → `### 소제목`
+- 번호 레이블(예: 01, 02) → `### ` 앞에 붙이기
+
+### 2. 2컬럼 레이아웃
+- 나란히 배치된 두 블록 → HTML table (컬럼 너비 50%)
+- colspan/rowspan 있는 병합 셀 → HTML table with colspan/rowspan 속성 명시
+
+### 3. 데이터 표
+- 격자형 표 → Markdown 테이블 우선 (`| 헤더 | ... |`)
+- 병합 셀 포함 시 → HTML `<table>` with `colspan`/`rowspan`
+
+### 4. 다이어그램/흐름도/아키텍처
+- 화살표·연결선·박스가 있는 도형 → Mermaid flowchart
+  ```mermaid
+  graph TD
+    A[시작] --> B[처리] --> C[종료]
+  ```
+- 순서/절차 다이어그램 → Mermaid sequence
+  ```mermaid
+  sequenceDiagram
+    Client->>Server: 요청
+    Server-->>Client: 응답
+  ```
+
+### 5. 타임라인/간트/일정
+- 날짜/기간/단계가 포함된 시각화 → Mermaid gantt
+  ```mermaid
+  gantt
+    title 프로젝트 일정
+    section 단계
+    작업명 :a1, 2024-01-01, 30d
+  ```
+- 간단한 시간표 → Markdown 테이블
+
+### 6. Step 카드 / 프로세스 번호 순서
+- 번호 붙은 단계 블록 → HTML table (번호 bold) 또는 순서 목록
+
+### 7. KEY TAKEAWAY / 인사이트 박스
+- 강조 박스 → Markdown blockquote (`>`)
+
+### 8. 색상 강조 텍스트
+- 파란색/주요 키워드 → `**굵게**`
+
+### 9. CLI/코드 예시
+- 명령어, 코드 → ` ```bash ` 또는 ` ```sql ` 코드블록
+
+### 10. 이미지/차트 (텍스트 전환 불가 시)
+- 막대/파이/선 그래프 → 값을 담은 Markdown 테이블로 표현
+- 순수 이미지 → `<!-- 이미지: [설명] -->`
+
+### 11. 페이지 번호, 회사 로고
+- 생략
 
 출력: Markdown만. 코드블록(```) 래퍼 없이 바로 내용 출력. 한국어 그대로 유지."""
+
+# PPTX 구조 메타데이터 보강 프롬프트 (python-pptx 추출 결과를 주입)
+_PPTX_META_PROMPT = """
+---
+## 슬라이드 구조 힌트 (python-pptx 추출)
+{meta}
+---
+위 구조 힌트를 참고하여 위 규칙에 따라 슬라이드 이미지를 Markdown으로 변환하세요."""
 
 
 def _get_client():
@@ -118,31 +171,49 @@ async def summarize_slide(img_path: Path) -> str:
     return await loop.run_in_executor(None, _run)
 
 
-async def convert_slide_to_markdown(img_path: Path) -> str:
+async def convert_slide_to_markdown(
+    img_path: Path,
+    pptx_path: Path | None = None,
+    slide_index: int = 0,
+) -> str:
     """
     슬라이드 PNG → Obsidian/Notion/NotebookLM에 최적화된 구조화된 Markdown.
 
     AI 요약(summarize_slide)과 다름:
     - summarize_slide: 내용을 3줄로 압축하는 '발표자 노트 요약'
     - convert_slide_to_markdown: 슬라이드의 모든 내용을 빠짐없이 변환하는 '원문 충실 변환'
+
+    pptx_path가 주어지면 python-pptx로 슬라이드 구조 메타데이터를 추출해
+    프롬프트에 보강한다 (인식 정확도 향상).
     """
     from google.genai import types as gtypes
+
+    # PPTX 메타데이터 추출 (동기, 빠름)
+    extra_context = ""
+    if pptx_path is not None and pptx_path.exists():
+        try:
+            extra_context = _extract_pptx_metadata(pptx_path, slide_index)
+        except Exception as e:
+            logger.warning("PPTX 메타데이터 추출 실패 (무시): %s", e)
 
     def _run() -> str:
         client = _get_client()
 
-        # _call_model은 SLIDE_PROMPT를 하드코딩하므로 직접 호출
         img_bytes = img_path.read_bytes()
         suffix = img_path.suffix.lower().lstrip(".")
         mime = "image/png" if suffix == "png" else f"image/{suffix}"
-
         img_part = gtypes.Part.from_bytes(data=img_bytes, mime_type=mime)
+
+        # 메타데이터가 있으면 프롬프트 끝에 보강 컨텍스트 추가
+        prompt = SLIDE_TO_MARKDOWN_PROMPT
+        if extra_context:
+            prompt = SLIDE_TO_MARKDOWN_PROMPT + _PPTX_META_PROMPT.format(meta=extra_context)
 
         def _call(model: str) -> tuple[str, str | None]:
             try:
                 resp = client.models.generate_content(
                     model=model,
-                    contents=[img_part, SLIDE_TO_MARKDOWN_PROMPT],
+                    contents=[img_part, prompt],
                     config=gtypes.GenerateContentConfig(
                         temperature=0.1,
                         max_output_tokens=8192,
@@ -170,3 +241,31 @@ async def convert_slide_to_markdown(img_path: Path) -> str:
 
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _run)
+
+
+def _extract_pptx_metadata(pptx_path: Path, slide_index: int) -> str:
+    """python-pptx로 슬라이드 구조 텍스트 추출 (0-based index).
+
+    텍스트박스·표 구조를 Gemini 프롬프트에 주입해 인식 정확도를 높인다.
+    """
+    from pptx import Presentation
+
+    prs = Presentation(str(pptx_path))
+    slides_list = list(prs.slides)
+    if slide_index >= len(slides_list):
+        return ""
+    slide = slides_list[slide_index]
+    lines: list[str] = []
+    for shape in slide.shapes:
+        if shape.has_text_frame:
+            for para in shape.text_frame.paragraphs:
+                t = para.text.strip()
+                if t:
+                    lines.append(f"- {t}")
+        elif shape.has_table:
+            tbl = shape.table
+            lines.append(f"[표: {tbl._tbl.tr_lst.__len__()}행 x {len(tbl.columns)}열]")
+            for row in tbl.rows:
+                row_texts = [cell.text.strip() for cell in row.cells]
+                lines.append("  | " + " | ".join(row_texts) + " |")
+    return "\n".join(lines)

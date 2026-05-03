@@ -91,10 +91,16 @@ async def convert_to_markdown(file_id: str):
 
     meta_path = UPLOADS_DIR / file_id / "metadata.json"
     filename = file_id
+    pptx_path: Path | None = None
     if meta_path.exists():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             filename = Path(meta.get("filename", file_id)).stem
+            # PPTX 원본이 있으면 메타데이터 보강에 활용
+            if meta.get("ext") == ".pptx":
+                candidate = UPLOADS_DIR / file_id / "original.pptx"
+                if candidate.exists():
+                    pptx_path = candidate
         except Exception:
             pass
 
@@ -104,7 +110,12 @@ async def convert_to_markdown(file_id: str):
         for idx, img_path in enumerate(slide_files, start=1):
             yield _sse({"status": "converting", "page": idx, "total": total})
             try:
-                md_text = await convert_slide_to_markdown(img_path)
+                # PPTX 입력 시 slide_index(0-based) 전달 → python-pptx 메타데이터 보강
+                md_text = await convert_slide_to_markdown(
+                    img_path,
+                    pptx_path=pptx_path,
+                    slide_index=idx - 1,
+                )
             except Exception as e:
                 logger.exception("슬라이드 %d Markdown 변환 실패", idx)
                 yield _sse({"status": "error", "page": idx, "message": str(e)})
