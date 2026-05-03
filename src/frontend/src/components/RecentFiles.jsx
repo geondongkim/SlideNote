@@ -1,16 +1,33 @@
 import { useEffect, useState } from 'react'
-import { fetchFiles, deleteFile } from '../lib/api'
+import { fetchFiles, deleteFile, uploadFile } from '../lib/api'
 import { useAppStore } from '../store/useAppStore'
 
 /**
  * 최근 파일 목록 — 초기 화면에 표시
  * 파일 클릭 시 해당 파일을 불러옴
  */
-export default function RecentFiles() {
+export default function RecentFiles({ onUpload }) {
   const { setFile } = useAppStore()
   const [files, setFiles] = useState([])
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState(null)
+  const [uploading, setUploading] = useState(false)
+
+  const handleCTAUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const meta = await uploadFile(file)
+      setFile(meta.fileId, meta.pageCount, meta.filename ?? '')
+      onUpload?.(file, meta)
+    } catch (err) {
+      console.error('업로드 실패:', err)
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
 
   const loadFiles = async () => {
     setLoading(true)
@@ -28,8 +45,8 @@ export default function RecentFiles() {
     loadFiles()
   }, [])
 
-  const handleOpen = async (fileId, pageCount) => {
-    setFile(fileId, pageCount)
+  const handleOpen = async (fileId, pageCount, filename) => {
+    setFile(fileId, pageCount, filename)
   }
 
   const handleDelete = async (e, fileId) => {
@@ -54,10 +71,20 @@ export default function RecentFiles() {
 
   if (files.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
-        <p className="text-2xl">📂</p>
+      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4">
+        <p className="text-3xl">📂</p>
         <p className="text-sm">최근 열었던 파일이 없습니다</p>
-        <p className="text-xs">상단 버튼으로 PPTX 또는 PDF를 업로드하세요</p>
+        <label className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded cursor-pointer transition-colors">
+          {uploading ? '변환 중…' : 'PPTX / PDF 업로드'}
+          <input
+            type="file"
+            accept=".pptx,.pdf"
+            className="hidden"
+            disabled={uploading}
+            onChange={handleCTAUpload}
+          />
+        </label>
+        <p className="text-xs text-gray-500">또는 상단 업로드 버튼 사용</p>
       </div>
     )
   }
@@ -69,7 +96,7 @@ export default function RecentFiles() {
         {files.map((f) => (
           <div
             key={f.fileId}
-            onClick={() => handleOpen(f.fileId, f.pageCount)}
+            onClick={() => handleOpen(f.fileId, f.pageCount, f.filename)}
             className="group relative bg-gray-900 border border-gray-700 rounded-lg overflow-hidden cursor-pointer hover:border-blue-500 transition-colors"
           >
             {/* 썸네일 */}

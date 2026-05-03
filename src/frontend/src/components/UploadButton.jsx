@@ -24,7 +24,7 @@ export default function UploadButton({ onSuccess }) {
       subscribeUploadProgress(meta.fileId, (state) => {
         setProgress(state)
       })
-      setFile(meta.fileId, meta.pageCount)
+      setFile(meta.fileId, meta.pageCount, meta.filename ?? '')
       onSuccess?.(file, meta)
     } catch (err) {
       setError(err.response?.data?.detail || err.message)

@@ -4,7 +4,7 @@
  * - 전체 재생
  * - 주석 시점 스탬프 표시 (주석 ID → 초)
  */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { useAudioRecorder } from '../hooks/useAudioRecorder'
 
@@ -17,6 +17,7 @@ function fmt(sec) {
 
 export default function AudioPanel({ stampTrigger }) {
   const { fileId, currentSlide } = useAppStore()
+  const [collapsed, setCollapsed] = useState(false)
   const {
     recording,
     hasAudio,
@@ -39,8 +40,16 @@ export default function AudioPanel({ stampTrigger }) {
   const stampEntries = Object.entries(timestamps)
 
   return (
-    <div className="mt-3 border border-gray-600 rounded p-2">
-      <p className="text-[10px] text-orange-400 font-medium mb-2">오디오 녹음</p>
+    <div className="border border-gray-600 rounded">
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full flex items-center justify-between px-2 py-1.5 text-[10px] text-orange-400 font-medium"
+      >
+        <span>오디오 녹음</span>
+        <span>{collapsed ? '▶' : '▼'}</span>
+      </button>
+      {!collapsed && (
+        <div className="px-2 pb-2">
 
       {/* 녹음 컨트롤 */}
       <div className="flex gap-2 mb-2">
@@ -88,6 +97,8 @@ export default function AudioPanel({ stampTrigger }) {
               <span className="text-blue-400">{fmt(sec)}</span>
             </div>
           ))}
+        </div>
+      )}
         </div>
       )}
     </div>

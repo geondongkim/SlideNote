@@ -3,11 +3,11 @@
  * 도구: select | pen | highlight | text | arrow
  */
 const TOOLS = [
-  { id: 'select',    label: '선택',   icon: '↖' },
-  { id: 'pen',       label: '펜',     icon: '✏️' },
-  { id: 'highlight', label: '형광펜', icon: '🖌' },
-  { id: 'text',      label: '텍스트', icon: 'T' },
-  { id: 'arrow',     label: '화살표', icon: '→' },
+  { id: 'select',    label: '선택',   icon: '↖',  shortcut: 'V' },
+  { id: 'pen',       label: '펜',     icon: '✏️',  shortcut: 'P' },
+  { id: 'highlight', label: '형광펜', icon: '🖌',  shortcut: 'H' },
+  { id: 'text',      label: '텍스트', icon: 'T',   shortcut: 'T' },
+  { id: 'arrow',     label: '화살표', icon: '→',   shortcut: 'A' },
 ]
 
 export default function Toolbar({ annotation }) {

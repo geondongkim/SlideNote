@@ -4,24 +4,36 @@
  * - 이미지 로드/리사이즈 시 canvas 크기 자동 동기화
  * - 화이트보드 페이지: 흰 PNG 위에 주석 도구 그대로 사용
  */
-import { useRef, useCallback, useEffect } from 'react'
+import { useRef, useCallback, useEffect, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { useAnnotation } from '../hooks/useAnnotation'
 import Toolbar from './Toolbar'
 
-export default function SlideViewer({ persistRef, stampRef, whiteboardPages = new Set() }) {
+export default function SlideViewer({ persistRef, stampRef, whiteboardPages = new Set(), setToolRef }) {
   const { fileId, currentSlide } = useAppStore()
   const imgRef = useRef(null)
   const canvasRef = useRef(null)
+  const [imgLoaded, setImgLoaded] = useState(false)
 
   const annotation = useAnnotation(canvasRef, fileId, currentSlide, stampRef)
 
-  // App이 노트 저장 시 persistAnnotations 호출 가능하도록 ref 연결
+  // App이 노트 저장 시 persistAnnotations 호웉 가능하도록 ref 연결
   useEffect(() => {
     if (persistRef) persistRef.current = annotation.persistAnnotations
   }, [annotation.persistAnnotations, persistRef])
 
+  // 단축키 핸들러에서 setTool 호출 가능하도록 ref 노오
+  useEffect(() => {
+    if (setToolRef) setToolRef.current = annotation.setTool
+  }, [annotation.setTool, setToolRef])
+
+  // 슬라이드 변경 시 스켈레톤 리셋
+  useEffect(() => {
+    setImgLoaded(false)
+  }, [fileId, currentSlide])
+
   const onImageLoad = useCallback(() => {
+    setImgLoaded(true)
     annotation.resizeToImage(imgRef.current)
   }, [annotation])
 
@@ -44,12 +56,18 @@ export default function SlideViewer({ persistRef, stampRef, whiteboardPages = ne
       {/* 뷰어 영역: 이미지 + canvas 겹치기 */}
       <div className="flex-1 flex items-center justify-center overflow-auto p-4">
         <div className="relative inline-block shadow-2xl">
+          {!imgLoaded && (
+            <div
+              className="absolute inset-0 bg-gray-700 animate-pulse rounded z-10"
+              style={{ minWidth: 400, aspectRatio: '16/9' }}
+            />
+          )}
           <img
             ref={imgRef}
             src={slideUrl}
             alt={`슬라이드 ${currentSlide}`}
             onLoad={onImageLoad}
-            className="block max-h-[calc(100vh-9rem)] max-w-full"
+            className={`block max-h-[calc(100vh-9rem)] max-w-full transition-opacity duration-150 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
             draggable={false}
           />
           {/* Canvas: 이미지 위 정확히 겹침 */}
