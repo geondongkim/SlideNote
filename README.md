@@ -177,6 +177,9 @@ SlideNote/
 | `GET` | `/api/notes/{file_id}/{page}` | 특정 슬라이드 노트 조회 |
 | `PUT` | `/api/notes/{file_id}/{page}` | 노트 + 주석 저장 |
 | `POST` | `/api/ai/{file_id}/summarize` | AI 요약 생성 (Gemini Vision) |
+| `POST` | `/api/audio/{file_id}/{page}` | 오디오 WebM 업로드 |
+| `PUT` | `/api/audio/{file_id}/{page}/timestamps` | 주석 시점 저장 |
+| `GET` | `/api/audio/{file_id}/{page}/file` | 오디오 스트리밍 반환 |
 | `GET` | `/api/export/{file_id}` | 슬라이드 PDF 내보내기 |
 
 ---
@@ -199,8 +202,8 @@ SlideNote/
 - [x] **v0.1** — PDF/PPTX 업로드 + 슬라이드 뷰어 + 노트 저장
 - [x] **v0.2** — Fabric.js 주석 레이어 (펜·형광펜·텍스트)
 - [x] **v0.3** — AI 자동 요약 (Gemini Vision) + 방향키 네비게이션 + 헤더 업로드
-- [ ] **v0.4** — PDF 내보내기 (주석 + 노트 병합)
-- [ ] **v0.5** — 오디오 녹음 연동
+- [x] **v0.4** — 오디오 녹음 연동 (MediaRecorder + 주석 timestamp)
+- [ ] **v0.5** — PDF 내보내기 주석 합성 (유인물 레이아웃)
 - [ ] **v1.0** — Firebase 동기화 + 화이트보드 모드
 
 ---

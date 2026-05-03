@@ -277,8 +277,17 @@ export function useAnnotation(canvasRef) {
 - 테이블 → HTML table (colspan/rowspan 포함)
 - 핵심 인사이트 3줄 요약 추가
 
-### 2-2. 오디오 녹음 연동
+### 2-2. 오디오 녹음 연동 ✅
 
+**구현 완료** (commit `ed295ee`):
+- `useAudioRecorder.js`: MediaRecorder WebM, `stamp(annotationId)` → elapsed 반환, `playFrom`, `loadAudio`
+- `AudioPanel.jsx`: 녹음 시작/중지, 재생, 타임스탬프 목록 UI
+- `routers/audio.py`: `POST /api/audio/{file_id}/{page}` (WebM 업로드), `PUT .../timestamps`, `GET .../file`
+- `notes.py` Note 모델: `audio_url`, `audio_timestamps` 필드 추가
+- `useAnnotation.js`: `stampRef` prop 연동 — `object:added` 시 녹음 중이면 elapsed 자동 기록 (`_timestamp`)
+- `App.jsx`: `AudioPanel`, `stampRef` 연결
+
+**원래 설계** (참고):
 ```
 [녹음 시작] → MediaRecorder API
      │
