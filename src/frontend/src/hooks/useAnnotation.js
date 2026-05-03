@@ -75,13 +75,18 @@ export function useAnnotation(canvasRef, fileId, page, stampRef) {
   useEffect(() => {
     const canvas = fabricRef.current
     if (!canvas) return
-    canvas.isDrawingMode = tool === 'pen' || tool === 'highlight'
-    canvas.selection = tool === 'select'
-    if (canvas.isDrawingMode) {
+    const isDrawing = tool === 'pen' || tool === 'highlight'
+    if (isDrawing) {
+      // v6: PencilBrush를 먼저 할당해야 freeDrawingBrush가 초기화됨
+      if (!canvas.freeDrawingBrush) {
+        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas)
+      }
       canvas.freeDrawingBrush.color =
         tool === 'highlight' ? _toRgba(color, 0.4) : color
       canvas.freeDrawingBrush.width = tool === 'highlight' ? 20 : brushWidth
     }
+    canvas.isDrawingMode = isDrawing
+    canvas.selection = tool === 'select'
   }, [tool, color, brushWidth])
 
   // ── Undo/Redo ──
