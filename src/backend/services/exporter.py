@@ -16,6 +16,7 @@ import platform
 import re
 import shutil
 import textwrap
+import urllib.request
 from pathlib import Path
 from typing import Literal
 
@@ -144,6 +145,181 @@ def _get_korean_font_name() -> str | None:
     return None
 
 
+# ── PPTX 폰트 자동 탐색 + 인터넷 다운로드 ────────────────────────────────────────────────
+
+_FONT_CACHE_DIR: Path = Path.home() / ".slidenote" / "fonts"
+
+# PPTX에서 읽히는 다양한 폰트명 → 정규화된 등록명
+_FONT_NAME_NORMALIZE: dict[str, str] = {
+    "맑은 고딕": "MalgunGothic",       "맑은고딕": "MalgunGothic",
+    "Malgun Gothic": "MalgunGothic",
+    "나눔고딕": "NanumGothic",          "Nanum Gothic": "NanumGothic",
+    "나눔명조": "NanumMyeongjo",        "Nanum Myeongjo": "NanumMyeongjo",
+    "나눔바른고딕": "NanumBarunGothic", "Nanum Barun Gothic": "NanumBarunGothic",
+    "나눔스퀘어": "NanumSquare",        "Nanum Square": "NanumSquare",
+    "나눔손글씨붓": "NanumBrushScript", "Nanum Brush Script": "NanumBrushScript",
+    "나눔손글씨펜": "NanumPenScript",   "Nanum Pen Script": "NanumPenScript",
+    "돋움": "Dotum",    "굴림": "Gulim",    "바탕": "Batang",    "궁서": "Gungsuh",
+    "Do Hyeon": "DoHyeon",   "도현": "DoHyeon",
+    "Jua": "Jua",            "주아": "Jua",
+    "Black Han Sans": "BlackHanSans",
+    "Noto Sans KR": "NotoSansKR",      "노토산스KR": "NotoSansKR",
+    "Noto Serif KR": "NotoSerifKR",
+    "IBM Plex Sans KR": "IBMPlexSansKR",
+    "Gowun Batang": "GowunBatang",     "고운바탕": "GowunBatang",
+    "Gowun Dodum": "GowunDodum",       "고운돋움": "GowunDodum",
+    "Song Myung": "SongMyung",         "송명": "SongMyung",
+    "Yeon Sung": "YeonSung",           "연성": "YeonSung",
+    "Gugi": "Gugi",   "Gaegu": "Gaegu",   "Poor Story": "PoorStory",
+    "Hi Melody": "HiMelody",
+    "East Sea Dokdo": "EastSeaDokdo",
+    "Kirang Haerang": "KirangHaerang",
+}
+
+# 정규화 등록명 → Google Fonts GitHub 직접 TTF 다운로드 URL
+_GOOGLE_FONTS_TTF_URLS: dict[str, str] = {
+    "NanumGothic":      "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumgothic/NanumGothic-Regular.ttf",
+    "NanumMyeongjo":    "https://raw.githubusercontent.com/google/fonts/main/ofl/nanummyeongjo/NanumMyeongjo-Regular.ttf",
+    "NanumBarunGothic": "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumbarungothic/NanumBarunGothic.ttf",
+    "NanumBrushScript": "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumbrushscript/NanumBrushScript-Regular.ttf",
+    "NanumPenScript":   "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumpenscript/NanumPenScript-Regular.ttf",
+    "DoHyeon":          "https://raw.githubusercontent.com/google/fonts/main/ofl/dohyeon/DoHyeon-Regular.ttf",
+    "Jua":              "https://raw.githubusercontent.com/google/fonts/main/ofl/jua/Jua-Regular.ttf",
+    "BlackHanSans":     "https://raw.githubusercontent.com/google/fonts/main/ofl/blackhansans/BlackHanSans-Regular.ttf",
+    "GowunBatang":      "https://raw.githubusercontent.com/google/fonts/main/ofl/gowunbatang/GowunBatang-Regular.ttf",
+    "GowunDodum":       "https://raw.githubusercontent.com/google/fonts/main/ofl/gowundodum/GowunDodum-Regular.ttf",
+    "IBMPlexSansKR":    "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexsanskr/IBMPlexSansKR-Regular.ttf",
+    "SongMyung":        "https://raw.githubusercontent.com/google/fonts/main/ofl/songmyung/SongMyung-Regular.ttf",
+    "YeonSung":         "https://raw.githubusercontent.com/google/fonts/main/ofl/yeonsung/YeonSung-Regular.ttf",
+    "Gugi":             "https://raw.githubusercontent.com/google/fonts/main/ofl/gugi/Gugi-Regular.ttf",
+    "Gaegu":            "https://raw.githubusercontent.com/google/fonts/main/ofl/gaegu/Gaegu-Regular.ttf",
+    "PoorStory":        "https://raw.githubusercontent.com/google/fonts/main/ofl/poorstory/PoorStory-Regular.ttf",
+    "HiMelody":         "https://raw.githubusercontent.com/google/fonts/main/ofl/himelody/HiMelody-Regular.ttf",
+    "KirangHaerang":    "https://raw.githubusercontent.com/google/fonts/main/ofl/kiranghaerang/KirangHaerang-Regular.ttf",
+}
+
+
+def _get_pptx_font_names(pptx_path: Path) -> set[str]:
+    """PPTX 파일에서 사용된 폰트 이름 목록 반환 (단락·런 레벨 모두 포함)."""
+    from pptx import Presentation
+    fonts: set[str] = set()
+    try:
+        prs = Presentation(str(pptx_path))
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if not hasattr(shape, "text_frame"):
+                    continue
+                for para in shape.text_frame.paragraphs:
+                    if para.font.name:
+                        fonts.add(para.font.name)
+                    for run in para.runs:
+                        if run.font.name:
+                            fonts.add(run.font.name)
+    except Exception as e:
+        logger.warning("PPTX 폰트 이름 추출 실패: %s", e)
+    return fonts
+
+
+def _try_download_font(reg_name: str) -> Path | None:
+    """Google Fonts GitHub에서 TTF 파일 다운로드 → 캐시 경로 반환. 실패 시 None."""
+    url = _GOOGLE_FONTS_TTF_URLS.get(reg_name)
+    if not url:
+        return None
+
+    _FONT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(url.split("?")[0]).suffix or ".ttf"
+    cached = _FONT_CACHE_DIR / f"{reg_name}{ext}"
+    if cached.exists():
+        logger.debug("폰트 캐시 사용: %s", cached)
+        return cached
+
+    logger.info("폰트 다운로드 시작: %s → %s", reg_name, url)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 SlideNote/1.0"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = resp.read()
+        cached.write_bytes(data)
+        logger.info("폰트 다운로드 완료: %s (%d bytes)", cached.name, len(data))
+        return cached
+    except Exception as e:
+        logger.warning("폰트 다운로드 실패 (%s): %s", reg_name, e)
+        cached.unlink(missing_ok=True)
+        return None
+
+
+def _build_font_registry(pptx_path: Path) -> dict[str, str]:
+    """PPTX 폰트 목록 → {pptx_font_name: reportlab_reg_name} 매핑.
+
+    순서: ① 이미 등록된 폰트 재사용 → ② 시스템 탐색 → ③ 인터넷 다운로드
+    """
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    pptx_fonts = _get_pptx_font_names(pptx_path)
+    logger.info("PPTX 사용 폰트 목록: %s", pptx_fonts)
+
+    sys_fonts = {name: (path, idx) for name, path, idx in _find_korean_font_paths()}
+    registry: dict[str, str] = {}
+
+    for font_name in pptx_fonts:
+        canonical = _FONT_NAME_NORMALIZE.get(font_name, font_name.replace(" ", ""))
+
+        # ① 이미 reportlab에 등록된 폰트 재사용
+        try:
+            pdfmetrics.getFont(canonical)
+            registry[font_name] = canonical
+            logger.debug("기등록 폰트 재사용: %s → %s", font_name, canonical)
+            continue
+        except Exception:
+            pass
+
+        # ② 시스템 폰트에서 찾기
+        if canonical in sys_fonts:
+            path, idx = sys_fonts[canonical]
+            try:
+                ext = Path(path).suffix.lower()
+                if ext == ".ttc":
+                    pdfmetrics.registerFont(TTFont(canonical, path, subfontIndex=idx))
+                else:
+                    pdfmetrics.registerFont(TTFont(canonical, path))
+                registry[font_name] = canonical
+                logger.info("시스템 폰트 등록: %s → %s (%s)", font_name, canonical, path)
+                continue
+            except Exception as e:
+                logger.debug("시스템 폰트 등록 실패 %s: %s", font_name, e)
+
+        # ③ 인터넷 다운로드 시도
+        font_path = _try_download_font(canonical)
+        if font_path:
+            try:
+                pdfmetrics.registerFont(TTFont(canonical, str(font_path)))
+                registry[font_name] = canonical
+                logger.info("다운로드 폰트 등록: %s → %s", font_name, canonical)
+            except Exception as e:
+                logger.warning("다운로드 폰트 등록 실패 %s: %s", font_name, e)
+
+    logger.info("폰트 레지스트리 완성 (%d/%d): %s",
+                len(registry), len(pptx_fonts), registry)
+    return registry
+
+
+def _get_shape_font_name(
+    shape,
+    font_registry: dict[str, str],
+    fallback: str | None,
+) -> str | None:
+    """shape의 단락·런에서 사용된 폰트를 레지스트리에서 찾아 반환. 없으면 fallback."""
+    if not hasattr(shape, "text_frame"):
+        return fallback
+    for para in shape.text_frame.paragraphs:
+        if para.font.name and para.font.name in font_registry:
+            return font_registry[para.font.name]
+        for run in para.runs:
+            if run.font.name and run.font.name in font_registry:
+                return font_registry[run.font.name]
+    return fallback
+
+
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     """시스템 한글 폰트 시도, 없으면 기본 폰트."""
     candidates = [
@@ -217,7 +393,14 @@ def _export_pptx_searchable(file_dir: Path, out_path: Path) -> Path:
             logger.warning("python-pptx 로드 실패: %s", e)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    font_name = _get_korean_font_name()  # None이면 invisible text 레이어 스킵
+    # 폰트 레지스트리: PPTX 원본 폰트 → reportlab 등록명 (시스템 우선, 없으면 다운로드)
+    fallback_font = _get_korean_font_name()
+    font_registry: dict[str, str] = {}
+    if original_pptx.exists() and prs is not None:
+        try:
+            font_registry = _build_font_registry(original_pptx)
+        except Exception as e:
+            logger.warning("폰트 레지스트리 구축 실패: %s", e)
 
     c = rl_canvas.Canvas(str(out_path))
     for slide_idx, png_path in enumerate(png_files):
@@ -228,8 +411,8 @@ def _export_pptx_searchable(file_dir: Path, out_path: Path) -> Path:
         # 배경: 슬라이드 PNG
         c.drawImage(ImageReader(str(png_path)), 0, 0, img_w, img_h)
 
-        # Invisible text overlay (한글 폰트 등록 성공 시에만 적용)
-        if prs is not None and slide_idx < len(prs.slides) and font_name:
+        # Invisible text overlay (shape별 원본 폰트 적용)
+        if prs is not None and slide_idx < len(prs.slides):
             slide = prs.slides[slide_idx]
             pptx_w = prs.slide_width   # EMU
             pptx_h = prs.slide_height  # EMU
@@ -242,15 +425,19 @@ def _export_pptx_searchable(file_dir: Path, out_path: Path) -> Path:
                     tf = shape.text_frame
                     if not tf.text.strip():
                         continue
+                    # shape별 폰트: PPTX 원본 폰트 → fallback (시스템 한글폰트)
+                    shape_font = _get_shape_font_name(shape, font_registry, fallback_font)
+                    if not shape_font:
+                        continue
                     # shape 위치 → PDF 좌표 (PDF y=0이 하단 → 상단 기준으로 변환)
                     sx = float(shape.left or 0) * scale_x
                     sy_top = float(shape.top or 0) * scale_y
                     sh = float(shape.height or 1) * scale_y
-                    pdf_y = img_h - sy_top          # shape 상단 기준 (더 정확한 검색 커서 위치)
+                    pdf_y = img_h - sy_top
                     para_count = max(len(tf.paragraphs), 1)
                     font_size = max(6, int(sh / para_count * 0.65))
                     c.saveState()
-                    c.setFont(font_name, font_size)
+                    c.setFont(shape_font, font_size)
                     t = c.beginText(sx, pdf_y)
                     t.setTextRenderMode(3)  # invisible: 검색·복사 가능, 화면에 미표시
                     for para in tf.paragraphs:
@@ -259,7 +446,6 @@ def _export_pptx_searchable(file_dir: Path, out_path: Path) -> Path:
                         try:
                             t.textLine(para.text)
                         except (UnicodeEncodeError, Exception) as _te:
-                            # 인코딩 불가 문자(특수기호 등) → 해당 단락 스킵, 나머지 계속
                             logger.debug("textLine 스킵 (슬라이드 %d): %s", slide_idx + 1, _te)
                     c.drawText(t)
                     c.restoreState()
