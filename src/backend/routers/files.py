@@ -1,27 +1,4 @@
-"""파일 업로드 / 슬라이드 메타 조회"""
-from __future__ import annotations
-
-import json
-import logging
-import shutil
-import uuid
-from datetime import datetime, timezone
-from pathlib import Path
-
-from fastapi import APIRouter, HTTPException, UploadFile
-from PIL import Image
-
-from services.converter import pdf_to_pngs, pptx_to_pngs
-
-logger = logging.getLogger(__name__)
-router = APIRouter()
-
-UPLOADS_DIR = Path("uploads")
-ALLOWED_EXT = {".pdf", ".pptx"}
-MAX_BYTES = 50 * 1024 * 1024  # 50MB
-
-
-"""파일 업로드 / 슬라이드 메타 조회"""
+﻿"""파일 업로드 / 슬라이드 메타 조회"""
 from __future__ import annotations
 
 import asyncio
@@ -54,6 +31,13 @@ def _sse(data: dict) -> str:
     return f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _safe_id(file_id: str) -> str:
+    """경로 탐색 공격 방지: hex 32자만 허용"""
+    if len(file_id) != 32 or not all(c in "0123456789abcdef" for c in file_id):
+        raise HTTPException(400, "잘못된 file_id")
+    return file_id
+
+
 @router.post("/upload")
 async def upload_file(file: UploadFile):
     ext = Path(file.filename or "").suffix.lower()
@@ -65,7 +49,6 @@ async def upload_file(file: UploadFile):
     file_dir.mkdir(parents=True, exist_ok=True)
     original = file_dir / f"original{ext}"
 
-    # 50MB 제한 검사 + 저장
     size = 0
     with original.open("wb") as f:
         while chunk := await file.read(1 << 20):
@@ -75,7 +58,6 @@ async def upload_file(file: UploadFile):
                 raise HTTPException(413, f"파일 크기 초과 (최대 {MAX_BYTES // 1024 // 1024}MB)")
             f.write(chunk)
 
-    # 변환 상태 초기화
     _conversion_progress[file_id] = {"status": "converting", "page": 0, "total": 0}
 
     slides_dir = file_dir / "slides"
@@ -110,26 +92,21 @@ async def upload_progress(file_id: str):
     fid = _safe_id(file_id)
 
     async def event_stream():
-        # 메타데이터가 이미 완성됐으면 즉시 완료 반환
         meta_path = UPLOADS_DIR / fid / "metadata.json"
         if meta_path.exists():
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             yield _sse({"status": "done", "page": meta["pageCount"], "total": meta["pageCount"]})
             return
 
-        for _ in range(120):  # 최대 60초 대기
+        for _ in range(120):
             state = _conversion_progress.get(fid, {"status": "waiting"})
             yield _sse(state)
             if state.get("status") in ("done", "error"):
                 return
-            # 슬라이드 파일 개수를 직접 세서 진행률 계산
             slides_dir = UPLOADS_DIR / fid / "slides"
             if slides_dir.exists():
                 done_pages = len(list(slides_dir.glob("page_*.png")))
-                _conversion_progress[fid] = {
-                    **state,
-                    "page": done_pages,
-                }
+                _conversion_progress[fid] = {**state, "page": done_pages}
             await asyncio.sleep(0.5)
 
         yield _sse({"status": "timeout"})
@@ -143,17 +120,14 @@ async def upload_progress(file_id: str):
 
 @router.get("")
 def list_files():
-    """uploads/ 아래 모든 파일의 메타데이터 목록 반환 (최신순)"""
     if not UPLOADS_DIR.exists():
         return []
     result = []
     for meta_path in UPLOADS_DIR.glob("*/metadata.json"):
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            # 첫 슬라이드 썸네일 URL
             fid = meta.get("fileId", meta_path.parent.name)
-            thumb = f"/uploads/{fid}/slides/page_01.png"
-            result.append({**meta, "thumbnail": thumb})
+            result.append({**meta, "thumbnail": f"/uploads/{fid}/slides/page_01.png"})
         except Exception:
             continue
     result.sort(key=lambda m: m.get("uploadedAt", ""), reverse=True)
@@ -162,7 +136,6 @@ def list_files():
 
 @router.delete("/{file_id}")
 def delete_file(file_id: str):
-    """파일 및 관련 데이터 삭제"""
     fid = _safe_id(file_id)
     file_dir = UPLOADS_DIR / fid
     if not file_dir.exists():
@@ -192,21 +165,8 @@ def list_slides(file_id: str):
     }
 
 
-def _safe_id(file_id: str) -> str:
-    """경로 탐색 공격 방지: hex 32자만 허용"""
-    if len(file_id) != 32 or not all(c in "0123456789abcdef" for c in file_id):
-        raise HTTPException(400, "잘못된 file_id")
-    return file_id
-
-
 @router.post("/{file_id}/whiteboard")
 def insert_whiteboard_page(file_id: str):
-    """
-    슬라이드 목록 마지막에 빈 흰 페이지(화이트보드)를 삽입한다.
-    - 기존 슬라이드들의 크기를 참조해 동일 해상도 흰 PNG 생성
-    - metadata.json pageCount 증가
-    - 반환: { page, url }
-    """
     fid = _safe_id(file_id)
     slides_dir = UPLOADS_DIR / fid / "slides"
     meta_path = UPLOADS_DIR / fid / "metadata.json"
@@ -216,7 +176,6 @@ def insert_whiteboard_page(file_id: str):
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     new_page = meta["pageCount"] + 1
 
-    # 첫 슬라이드 크기 참조; 없으면 16:9 기본값
     first_png = slides_dir / "page_01.png"
     if first_png.exists():
         ref = Image.open(first_png)
@@ -224,7 +183,6 @@ def insert_whiteboard_page(file_id: str):
     else:
         width, height = 1920, 1080
 
-    # 빈 흰 PNG 생성
     blank = Image.new("RGB", (width, height), "white")
     out_path = slides_dir / f"page_{new_page:02d}.png"
     blank.save(str(out_path), "PNG")
