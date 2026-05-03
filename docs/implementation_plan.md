@@ -826,6 +826,26 @@ uploads/
 
 ---
 
+## UX 개선 (v1.6) — 단축키 버그 수정 + 드래그 앤 드롭
+
+> **배경**: v1.5 단축키 T/A가 실제로 동작하지 않았음 (tool state만 변경, addText/addArrow 미호출). 파일 업로드 진입점 추가.
+
+#### T/A 키보드 단축키 수정
+- [x] `useAnnotation.js`: `activateTool(id)` 추가 — text/arrow 분기 처리 포함
+- [x] `SlideViewer.jsx`: `setToolRef.current = annotation.activateTool` (기존 `setTool` → 교체)
+
+#### Toolbar 단축키 tooltip 완성
+- [x] `Toolbar.jsx`: `title={`${t.label} (${t.shortcut})`}` 적용 (기존 `title={t.label}` 수정)
+
+#### 전체 화면 드래그 앤 드롭 업로드
+- [x] `App.jsx`: `dragOver` state + `handleDragOver/Leave/Drop` 핸들러
+- [x] 파란 대시 보더 + 안내 오버레이 표시 (드래그 중)
+- [x] PPTX/PDF 파일 드롭 시 즉시 변환 → 로그인 상태면 Firebase 세션 저장
+
+> **구현 완료 (commit 8c06a32)**
+
+---
+
 ## 오픈소스 참고 분석 요약
 
 클론 위치: `repo/` (shallow, `--depth=1`)
