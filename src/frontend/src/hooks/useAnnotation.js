@@ -33,6 +33,20 @@ export function useAnnotation(canvasRef, fileId, page, stampRef) {
     })
     fabricRef.current = canvas
 
+    // Fabric v6는 <canvas>를 canvas-container div로 감싸는데,
+    // 해당 div가 position:relative(기본)로 이미지 아래 일반 흐름에 배치됨.
+    // → upper-canvas(드로잉 레이어)가 슬라이드 PNG 아래에 숨겨지는 버그 수정
+    const containerEl = canvasRef.current?.parentElement
+    if (containerEl) {
+      Object.assign(containerEl.style, {
+        position: 'absolute',
+        top: '0',
+        left: '0',
+        width: '100%',
+        height: '100%',
+      })
+    }
+
     // 객체 추가 시 id/_pageRatio 자동 부여
     canvas.on('object:added', (e) => {
       const obj = e.target
