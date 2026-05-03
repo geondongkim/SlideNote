@@ -181,6 +181,7 @@ SlideNote/
 | `PUT` | `/api/audio/{file_id}/{page}/timestamps` | 주석 시점 저장 |
 | `GET` | `/api/audio/{file_id}/{page}/file` | 오디오 스트리밍 반환 |
 | `GET` | `/api/export/{file_id}` | 슬라이드 PDF 내보내기 |
+| `GET` | `/api/export/{file_id}/handout?layout=2up` | 유인물 레이아웃 PDF (1up/2up/4up) |
 
 ---
 
@@ -203,7 +204,7 @@ SlideNote/
 - [x] **v0.2** — Fabric.js 주석 레이어 (펜·형광펜·텍스트)
 - [x] **v0.3** — AI 자동 요약 (Gemini Vision) + 방향키 네비게이션 + 헤더 업로드
 - [x] **v0.4** — 오디오 녹음 연동 (MediaRecorder + 주석 timestamp)
-- [ ] **v0.5** — PDF 내보내기 주석 합성 (유인물 레이아웃)
+- [x] **v0.5** — 유인물 레이아웃 PDF (1up/2up/4up, 노트 포함)
 - [ ] **v1.0** — Firebase 동기화 + 화이트보드 모드
 
 ---

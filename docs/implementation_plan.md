@@ -311,16 +311,32 @@ export function useAnnotation(canvasRef) {
 }
 ```
 
-### 2-3. 유인물 레이아웃 (PowerPoint '유인물 마스터' 대응)
+### 2-3. 유인물 레이아웃 (PowerPoint '유인물 마스터' 대응) ✅
+
+**구현 완료 (2026-05-03)**
+
+**백엔드**
+- `services/exporter.py` — `export_handout(slides_dir, notes_dir, out_path, layout)` 추가
+  - `1up`: A4 1장에 슬라이드 1개 + 노트 8줄 영역
+  - `2up`: A4 1장에 슬라이드 2개 + 각 노트 4줄 영역
+  - `4up`: A4 1장에 슬라이드 4개 2×2 그리드 (요약 인쇄용, 슬라이드 번호 표시)
+  - Pillow `ImageDraw`로 줄 그리기 + 한글 폰트(맑은 고딕) 지원, 없으면 기본 폰트 fallback
+  - 노트 텍스트 자동 줄 바꿈 (`textwrap.wrap`)
+- `routers/export.py` — `GET /api/export/{file_id}/handout?layout=1up|2up|4up` 추가
+  - `_validate_id()` 헬퍼로 중복 검증 통합
+
+**프론트엔드**
+- `lib/api.js` — `downloadHandout(fileId, layout)` 추가 (a 태그 클릭 방식)
+- `App.jsx` — 우측 패널 하단에 유인물 버튼 그룹 추가 (`1up` / `2up` / `4up`)
 
 ```python
-# exporter.py
-def export_handout(file_id: str, layout: Literal["1up", "2up", "4up"]) -> Path:
-    """
-    layout="2up": A4 페이지에 슬라이드 2장 + 노트 영역
-    layout="4up": A4 페이지에 슬라이드 4장 (요약 인쇄용)
-    ReportLab 또는 PyMuPDF로 PDF 생성
-    """
+# 실제 구현 시그니처
+def export_handout(
+    slides_dir: Path,
+    notes_dir: Path,
+    out_path: Path,
+    layout: Literal["1up", "2up", "4up"] = "2up",
+) -> Path:
 ```
 
 ### 2-4. 화이트보드 모드

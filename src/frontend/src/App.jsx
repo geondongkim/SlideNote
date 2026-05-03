@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from './store/useAppStore'
-import { fetchNote, summarizeSlide } from './lib/api'
+import { fetchNote, summarizeSlide, downloadHandout } from './lib/api'
 import { useAudioRecorder } from './hooks/useAudioRecorder'
 import UploadButton from './components/UploadButton'
 import SlideList from './components/SlideList'
@@ -138,13 +138,27 @@ export default function App() {
           {fileId && <AudioPanel />}
 
           {fileId && (
-            <a
-              href={`/api/export/${fileId}`}
-              download
-              className="mt-2 block text-center bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm py-1 rounded"
-            >
-              PDF 내보내기
-            </a>
+            <div className="mt-2 flex flex-col gap-1">
+              <a
+                href={`/api/export/${fileId}`}
+                download
+                className="block text-center bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm py-1 rounded"
+              >
+                PDF 내보내기
+              </a>
+              <div className="flex gap-1 items-center">
+                <span className="text-[10px] text-gray-500 shrink-0">유인물</span>
+                {['1up', '2up', '4up'].map((layout) => (
+                  <button
+                    key={layout}
+                    onClick={() => downloadHandout(fileId, layout)}
+                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs py-1 rounded"
+                  >
+                    {layout}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </aside>
       </div>

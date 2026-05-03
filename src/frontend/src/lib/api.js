@@ -53,4 +53,12 @@ export const fetchAudio = async (fileId, page) => {
   return { blob, timestamps: note.audio_timestamps || {} }
 }
 
+export const downloadHandout = (fileId, layout = '2up') => {
+  const url = `/api/export/${fileId}/handout?layout=${layout}`
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `slidenote_handout_${layout}.pdf`
+  a.click()
+}
+
 export default api
