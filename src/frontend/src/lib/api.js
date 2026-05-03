@@ -84,6 +84,34 @@ export const downloadNotesMarkdown = (fileId, filename = 'notes') => {
 }
 
 /**
+ * PPTX → 고품질 네이티브 PDF 변환 (SSE 진행률 스트리밍).
+ * @param {string} fileId
+ * @param {(state: {status: string, message: string}) => void} onProgress
+ * @returns {Promise<void>}
+ */
+export const convertOriginalPdf = (fileId, onProgress) => {
+  return new Promise((resolve, reject) => {
+    const es = new EventSource(`/api/export/${fileId}/original-pdf/convert`)
+    es.onmessage = (e) => {
+      try {
+        const state = JSON.parse(e.data)
+        onProgress(state)
+        if (state.status === 'done') { es.close(); resolve() }
+        if (state.status === 'error') { es.close(); reject(new Error(state.message)) }
+      } catch { /* ignore */ }
+    }
+    es.onerror = () => { es.close(); reject(new Error('SSE 연결 오류')) }
+  })
+}
+
+export const downloadOriginalPdf = (fileId, filename = 'slidenote') => {
+  const a = document.createElement('a')
+  a.href = `/api/export/${fileId}/original-pdf`
+  a.download = `${filename}.pdf`
+  a.click()
+}
+
+/**
  * 전체 슬라이드 → 구조화된 Markdown 변환 (SSE 스트리밍, 원문 충실 변환).
  * AI 요약(summarizeSlide)과 다름:
  *   - summarizeSlide: 슬라이드를 3줄로 압축하는 발표자 노트 요약

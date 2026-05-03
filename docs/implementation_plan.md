@@ -54,6 +54,7 @@
 > - ✅ `services/converter.py` (pdf_to_pngs / pptx_to_pngs Windows·LibreOffice 분기)
 >   - **PPTX Windows COM 방식 확정**: `_win32_pptx_to_pngs` → Python subprocess (`sys.executable + 임시 .py`)
 >   - uvicorn 이벤트루프 스레드에서 `Visible=True` COM 오류(0x80048240) → 부모 window station 상속 subprocess로 해결
+>   - **고품질 PDF 변환 추가 (2026-05-05)**: `pptx_to_pdf_native()` — Windows COM `SaveAs(ppSaveAsPDF=32)` / Gotenberg bytes 직접 저장 / LibreOffice fallback
 >   - 성능 측정 완료 (2026-05-03):
 >     | 항목 | PDF | PPTX |
 >     |------|-----|------|
@@ -515,6 +516,11 @@ import { PdfViewer } from 'react-native-pdf-viewer';
   슬라이드 Markdown 변환
     · 변환 중 프로그레스 바
     · Obsidian/Notion 최적화 안내
+  ─ 구분선 ─
+  ✦ 원본 품질 PDF (v1.8 추가)
+    · Windows: PowerPoint COM (벡터/폰트/링크 완전 보존)
+    · Linux: Gotenberg / LibreOffice (PDF bytes 직접 저장)
+    · SSE 진행률 스트리밍 → 변환 완료 시 자동 다운로드
 
 오디오 탭:
   AudioPanel (전체 높이 사용)

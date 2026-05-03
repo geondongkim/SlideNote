@@ -1,13 +1,15 @@
 """PDF 내보내기 엔드포인트"""
 import json
+import asyncio
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
 from services.exporter import export_to_pdf, export_handout
+from services.converter import pptx_to_pdf_native
 
 router = APIRouter()
 UPLOADS_DIR = Path("uploads")
@@ -238,3 +240,101 @@ def download_slides_markdown(file_id: str):
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": _content_disposition(f"{safe_name}_slides.md")},
     )
+
+
+# ─── 고품질 PPTX → PDF 변환 (벡터/폰트/하이퍼링크 보존) ─────────────────────
+
+@router.get("/{file_id}/original-pdf/convert")
+async def convert_original_pdf(file_id: str):
+    """PPTX → 고품질 PDF SSE 변환 스트림.
+
+    - PDF 원본: 즉시 완료 (변환 불필요)
+    - PPTX: win32com(Windows) / Gotenberg / LibreOffice 순으로 변환
+    - 진행 이벤트: {"status": "converting"|"done"|"error", "message": "..."}
+    """
+    fid = _validate_id(file_id)
+    file_dir = UPLOADS_DIR / fid
+    meta_path = file_dir / "metadata.json"
+    if not meta_path.exists():
+        raise HTTPException(404, "파일을 찾을 수 없음")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    ext = meta.get("ext", "").lower()
+    original_name = Path(meta.get("filename", "slidenote")).stem
+
+    async def stream():
+        import concurrent.futures
+
+        def _sse(data: dict) -> str:
+            return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        # PDF 원본이면 변환 필요 없음
+        if ext == "pdf":
+            original_pdf = file_dir / "original.pdf"
+            if original_pdf.exists():
+                yield _sse({"status": "done", "message": "PDF 원본 파일 준비 완료"})
+                return
+            yield _sse({"status": "error", "message": "원본 PDF를 찾을 수 없습니다"})
+            return
+
+        # PPTX 변환
+        pptx_path = file_dir / "original.pptx"
+        if not pptx_path.exists():
+            yield _sse({"status": "error", "message": "원본 PPTX 파일을 찾을 수 없습니다"})
+            return
+
+        out_pdf = file_dir / "original_hq.pdf"
+        yield _sse({"status": "converting", "message": "고품질 PDF 변환 중…"})
+
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(
+                concurrent.futures.ThreadPoolExecutor(max_workers=1),
+                pptx_to_pdf_native,
+                pptx_path,
+                out_pdf,
+            )
+            yield _sse({"status": "done", "message": f"{original_name}.pdf 변환 완료"})
+        except Exception as e:
+            yield _sse({"status": "error", "message": str(e)})
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/{file_id}/original-pdf")
+def download_original_pdf(file_id: str):
+    """변환된(또는 원본) 고품질 PDF 다운로드."""
+    fid = _validate_id(file_id)
+    file_dir = UPLOADS_DIR / fid
+    meta_path = file_dir / "metadata.json"
+    if not meta_path.exists():
+        raise HTTPException(404, "파일을 찾을 수 없음")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    ext = meta.get("ext", "").lower()
+    original_name = Path(meta.get("filename", "slidenote")).stem
+    download_name = _safe_filename(original_name) + ".pdf"
+
+    # PDF 원본
+    if ext == "pdf":
+        pdf_path = file_dir / "original.pdf"
+        if not pdf_path.exists():
+            raise HTTPException(404, "원본 PDF 파일 없음")
+        return FileResponse(str(pdf_path), media_type="application/pdf", filename=download_name)
+
+    # PPTX → 고품질 변환본
+    hq_pdf = file_dir / "original_hq.pdf"
+    if not hq_pdf.exists():
+        raise HTTPException(
+            404,
+            "변환된 PDF가 없습니다. 먼저 변환 요청(/convert)을 실행하세요.",
+        )
+    return FileResponse(str(hq_pdf), media_type="application/pdf", filename=download_name)
+

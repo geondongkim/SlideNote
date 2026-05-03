@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from './store/useAppStore'
-import { uploadFile, fetchNote, summarizeSlide, downloadHandout, downloadNotesMarkdown, convertSlidesToMarkdown, downloadSlidesMarkdown } from './lib/api'
+import { uploadFile, fetchNote, summarizeSlide, downloadHandout, downloadNotesMarkdown, convertSlidesToMarkdown, downloadSlidesMarkdown, convertOriginalPdf, downloadOriginalPdf } from './lib/api'
 import { useAudioRecorder } from './hooks/useAudioRecorder'
 import { useAuth } from './hooks/useAuth'
 import { useFirestore } from './hooks/useFirestore'
@@ -26,6 +26,8 @@ export default function App() {
   const [convertFilename, setConvertFilename] = useState('')
   const [activeTab, setActiveTab] = useState('note')
   const [dragOver, setDragOver] = useState(false)
+  const [hqPdfState, setHqPdfState] = useState('idle') // 'idle' | 'converting' | 'done' | 'error'
+  const [hqPdfMsg, setHqPdfMsg] = useState('')
   const persistRef = useRef(null)
   const stampRef = useRef(null)
   const setToolRef = useRef(null)
@@ -137,6 +139,29 @@ export default function App() {
       alert(`Markdown 변환 오류: ${e.message}`)
     } finally {
       setConverting(false)
+    }
+  }
+
+  // 고품질 PPTX → PDF 변환 (벡터/폰트/하이퍼링크 보존)
+  const handleHqPdf = async () => {
+    if (!fileId || hqPdfState === 'converting') return
+    setHqPdfState('converting')
+    setHqPdfMsg('PDF 변환 중…')
+    try {
+      await convertOriginalPdf(fileId, (state) => {
+        setHqPdfMsg(state.message || '')
+        if (state.status === 'done') setHqPdfState('done')
+        if (state.status === 'error') setHqPdfState('error')
+      })
+      // 변환 완료 시 자동 다운로드
+      const stem = filename ? filename.replace(/\.[^.]+$/, '') : fileId
+      downloadOriginalPdf(fileId, stem)
+      // 3초 후 상태 초기화
+      setTimeout(() => setHqPdfState('idle'), 3000)
+    } catch (e) {
+      setHqPdfMsg(e.message)
+      setHqPdfState('error')
+      setTimeout(() => setHqPdfState('idle'), 4000)
     }
   }
 
@@ -393,6 +418,42 @@ export default function App() {
                     <p className="text-[9px] text-gray-500 mt-1 leading-snug">
                       Obsidian · Notion · NotebookLM 최적화<br />
                       표·다이어그램·텍스트 원문 보존
+                    </p>
+                  </div>
+                  <div className="mt-1 border-t border-gray-700 pt-2">
+                    <p className="text-[10px] text-amber-400 mb-1 font-medium flex items-center gap-1">
+                      ✦ 원본 품질 PDF
+                      <span className="text-gray-500 font-normal">벡터·폰트·링크 보존</span>
+                    </p>
+                    <button
+                      onClick={handleHqPdf}
+                      disabled={!fileId || hqPdfState === 'converting'}
+                      className={`w-full text-sm py-1 rounded transition-colors font-medium ${
+                        hqPdfState === 'done'
+                          ? 'bg-green-700 text-green-100'
+                          : hqPdfState === 'error'
+                          ? 'bg-red-800 text-red-200'
+                          : hqPdfState === 'converting'
+                          ? 'bg-amber-800 text-amber-200 cursor-wait'
+                          : 'bg-amber-700 hover:bg-amber-600 text-white'
+                      }`}
+                    >
+                      {hqPdfState === 'converting' && (
+                        <span className="inline-block mr-1 animate-spin">◌</span>
+                      )}
+                      {hqPdfState === 'done' && '✓ 다운로드 완료'}
+                      {hqPdfState === 'error' && '✗ 변환 실패'}
+                      {hqPdfState === 'converting' && '변환 중…'}
+                      {hqPdfState === 'idle' && '📥 원본 품질로 저장'}
+                    </button>
+                    {(hqPdfState === 'converting' || hqPdfState === 'error') && hqPdfMsg && (
+                      <p className={`text-[9px] mt-1 leading-snug ${hqPdfState === 'error' ? 'text-red-400' : 'text-amber-400'}`}>
+                        {hqPdfMsg}
+                      </p>
+                    )}
+                    <p className="text-[9px] text-gray-500 mt-1 leading-snug">
+                      Windows: PowerPoint COM (최고 품질)<br />
+                      Linux: LibreOffice / Gotenberg
                     </p>
                   </div>
                 </>
