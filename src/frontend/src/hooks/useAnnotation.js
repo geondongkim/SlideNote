@@ -180,6 +180,13 @@ export function useAnnotation(canvasRef, fileId, page, stampRef) {
     _saveSnapshot()
   }, [_saveSnapshot])
 
+  // ── 단축키에서 도구 활성화 (text/arrow 특수 처리 포함) ──
+  const activateTool = useCallback((id) => {
+    if (id === 'text') { setTool('select'); addText(); return }
+    if (id === 'arrow') { setTool('select'); addArrow(); return }
+    setTool(id)
+  }, [addText, addArrow])
+
   // ── 저장 (PUT /api/notes) ──
   const persistAnnotations = useCallback(async (noteText) => {
     if (!fileId || !fabricRef.current) return
@@ -199,7 +206,7 @@ export function useAnnotation(canvasRef, fileId, page, stampRef) {
 
   return {
     BRUSH_COLORS,
-    tool, setTool,
+    tool, setTool, activateTool,
     color, setColor,
     brushWidth, setBrushWidth,
     canUndo, canRedo,

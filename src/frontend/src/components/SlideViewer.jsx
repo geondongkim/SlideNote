@@ -22,10 +22,10 @@ export default function SlideViewer({ persistRef, stampRef, whiteboardPages = ne
     if (persistRef) persistRef.current = annotation.persistAnnotations
   }, [annotation.persistAnnotations, persistRef])
 
-  // 단축키 핸들러에서 setTool 호출 가능하도록 ref 노오
+  // 단축키 핸들러에서 activateTool 호출 가능하도록 ref 연결
   useEffect(() => {
-    if (setToolRef) setToolRef.current = annotation.setTool
-  }, [annotation.setTool, setToolRef])
+    if (setToolRef) setToolRef.current = annotation.activateTool
+  }, [annotation.activateTool, setToolRef])
 
   // 슬라이드 변경 시 스켈레톤 리셋
   useEffect(() => {

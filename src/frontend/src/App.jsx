@@ -14,7 +14,7 @@ import RecentFiles from './components/RecentFiles'
 import PresentationMode from './components/PresentationMode'
 
 export default function App() {
-  const { fileId, currentSlide, pageCount, setCurrentSlide, filename } = useAppStore()
+  const { fileId, currentSlide, pageCount, setCurrentSlide, filename, setFile } = useAppStore()
   const [noteText, setNoteText] = useState('')
   const [aiSummary, setAiSummary] = useState('')
   const [summarizing, setSummarizing] = useState(false)
@@ -25,6 +25,7 @@ export default function App() {
   const [convertProgress, setConvertProgress] = useState({ page: 0, total: 0 })
   const [convertFilename, setConvertFilename] = useState('')
   const [activeTab, setActiveTab] = useState('note')
+  const [dragOver, setDragOver] = useState(false)
   const persistRef = useRef(null)
   const stampRef = useRef(null)
   const setToolRef = useRef(null)
@@ -159,8 +160,47 @@ export default function App() {
     return () => clearTimeout(t)
   }, [noteText, fileId, currentSlide, user, syncNote])
 
+  // 드래그 앤 드롭 업로드
+  const handleDragOver = (e) => {
+    e.preventDefault()
+    const hasFile = Array.from(e.dataTransfer.items).some((item) => item.kind === 'file')
+    if (hasFile) setDragOver(true)
+  }
+  const handleDragLeave = (e) => {
+    if (!e.relatedTarget || !e.currentTarget.contains(e.relatedTarget)) setDragOver(false)
+  }
+  const handleDrop = async (e) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    const ext = file.name.split('.').pop().toLowerCase()
+    if (!['pdf', 'pptx'].includes(ext)) { alert('PPTX 또는 PDF 파일만 업로드 가능합니다.'); return }
+    try {
+      const meta = await uploadFile(file)
+      setFile(meta.fileId, meta.pageCount, meta.filename ?? '')
+      if (user) await handleUploadSuccess(file, meta)
+    } catch (err) {
+      alert(`업로드 오류: ${err.message}`)
+    }
+  }
+
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div
+      className="flex flex-col h-screen overflow-hidden"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* 드래그 오버레이 */}
+      {dragOver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-950/80 pointer-events-none border-4 border-blue-400 border-dashed">
+          <div className="text-center">
+            <p className="text-5xl mb-3">📂</p>
+            <p className="text-white text-xl font-bold">PPTX / PDF 파일을 드롭하세요</p>
+          </div>
+        </div>
+      )}
       {/* 발표 모드 오버레이 */}
       {presenting && (
         <PresentationMode onExit={() => setPresenting(false)} />

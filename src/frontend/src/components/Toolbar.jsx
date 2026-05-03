@@ -34,7 +34,7 @@ export default function Toolbar({ annotation }) {
       {TOOLS.map((t) => (
         <button
           key={t.id}
-          title={t.label}
+          title={`${t.label} (${t.shortcut})`}
           onClick={() => onToolClick(t.id)}
           className={`px-2.5 py-1 rounded text-sm font-medium transition-colors ${
             tool === t.id
