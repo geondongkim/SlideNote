@@ -182,6 +182,7 @@ SlideNote/
 | `GET` | `/api/audio/{file_id}/{page}/file` | 오디오 스트리밍 반환 |
 | `GET` | `/api/export/{file_id}` | 슬라이드 PDF 내보내기 |
 | `GET` | `/api/export/{file_id}/handout?layout=2up` | 유인물 레이아웃 PDF (1up/2up/4up) |
+| `POST` | `/api/files/{file_id}/whiteboard` | 빈 페이지 삽입 (화이트보드) |
 
 ---
 
@@ -205,7 +206,7 @@ SlideNote/
 - [x] **v0.3** — AI 자동 요약 (Gemini Vision) + 방향키 네비게이션 + 헤더 업로드
 - [x] **v0.4** — 오디오 녹음 연동 (MediaRecorder + 주석 timestamp)
 - [x] **v0.5** — 유인물 레이아웃 PDF (1up/2up/4up, 노트 포함)
-- [ ] **v1.0** — Firebase 동기화 + 화이트보드 모드
+- [x] **v1.0** — 화이트보드 모드 (빈 페이지 삽입 + Fabric.js 자유 드로잌)
 
 ---
 

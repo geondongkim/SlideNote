@@ -339,11 +339,30 @@ def export_handout(
 ) -> Path:
 ```
 
-### 2-4. 화이트보드 모드
+### 2-4. 화이트보드 모드 ✅
 
-- 슬라이드 목록에서 "빈 페이지 삽입" 클릭
-- 전체 흰 Canvas → Fabric.js 자유 드로잉
-- 내보내기 시 해당 페이지도 PDF에 포함
+**구현 완료 (2026-05-03)**
+
+**백엔드**
+- `routers/files.py` — `POST /api/files/{file_id}/whiteboard` 추가
+  - 기존 슬라이드 크기 참조(없으면 1920×1080) → 흰 PNG 생성 → `page_NN.png` 저장
+  - `metadata.json pageCount` 자동 증가
+  - 반환: `{ page, url, pageCount }`
+
+**프론트엔드**
+- `store/useAppStore.js` — `setPageCount(pageCount)` 액션 추가
+- `lib/api.js` — `insertWhiteboardPage(fileId)` 추가
+- `components/SlideList.jsx`
+  - 하단에 **"+ 빈 페이지 삽입"** 점선 버튼 추가
+  - 삽입 후 해당 페이지로 자동 이동, `onWhiteboardInserted` 콜백 호출
+- `components/SlideViewer.jsx`
+  - `whiteboardPages: Set<number>` prop 수신
+  - 화이트보드 페이지면 황색 안내 배너 표시: "✏ 화이트보드 페이지 — 자유롭게 드로잉하세요"
+- `App.jsx`
+  - `whiteboardPages` 상태 관리 (Set)
+  - `SlideList`에 `onWhiteboardInserted` 전달, `SlideViewer`에 `whiteboardPages` 전달
+
+**내보내기**: 화이트보드 페이지도 `page_NN.png`로 저장되므로 기존 `export_to_pdf` / `export_handout` 자동 포함
 
 ---
 

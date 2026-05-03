@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
+from PIL import Image
 
 from services.converter import pdf_to_pngs, pptx_to_pngs
 
@@ -91,3 +92,43 @@ def _safe_id(file_id: str) -> str:
     if len(file_id) != 32 or not all(c in "0123456789abcdef" for c in file_id):
         raise HTTPException(400, "잘못된 file_id")
     return file_id
+
+
+@router.post("/{file_id}/whiteboard")
+def insert_whiteboard_page(file_id: str):
+    """
+    슬라이드 목록 마지막에 빈 흰 페이지(화이트보드)를 삽입한다.
+    - 기존 슬라이드들의 크기를 참조해 동일 해상도 흰 PNG 생성
+    - metadata.json pageCount 증가
+    - 반환: { page, url }
+    """
+    fid = _safe_id(file_id)
+    slides_dir = UPLOADS_DIR / fid / "slides"
+    meta_path = UPLOADS_DIR / fid / "metadata.json"
+    if not slides_dir.exists():
+        raise HTTPException(404, "슬라이드를 찾을 수 없음")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    new_page = meta["pageCount"] + 1
+
+    # 첫 슬라이드 크기 참조; 없으면 16:9 기본값
+    first_png = slides_dir / "page_01.png"
+    if first_png.exists():
+        ref = Image.open(first_png)
+        width, height = ref.size
+    else:
+        width, height = 1920, 1080
+
+    # 빈 흰 PNG 생성
+    blank = Image.new("RGB", (width, height), "white")
+    out_path = slides_dir / f"page_{new_page:02d}.png"
+    blank.save(str(out_path), "PNG")
+
+    meta["pageCount"] = new_page
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {
+        "page": new_page,
+        "url": f"/uploads/{fid}/slides/page_{new_page:02d}.png",
+        "pageCount": new_page,
+    }

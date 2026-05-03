@@ -61,4 +61,9 @@ export const downloadHandout = (fileId, layout = '2up') => {
   a.click()
 }
 
+export const insertWhiteboardPage = async (fileId) => {
+  const { data } = await api.post(`/files/${fileId}/whiteboard`)
+  return data  // { page, url, pageCount }
+}
+
 export default api

@@ -13,6 +13,7 @@ export default function App() {
   const [aiSummary, setAiSummary] = useState('')
   const [summarizing, setSummarizing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [whiteboardPages, setWhiteboardPages] = useState(new Set())
   const persistRef = useRef(null)
   const stampRef = useRef(null)   // useAudioRecorder.stamp → useAnnotation
 
@@ -90,11 +91,19 @@ export default function App() {
 
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-48 bg-gray-900 border-r border-gray-700 overflow-y-auto p-2 shrink-0">
-          <SlideList />
+          <SlideList
+            onWhiteboardInserted={(page) =>
+              setWhiteboardPages((prev) => new Set([...prev, page]))
+            }
+          />
         </aside>
 
         {fileId ? (
-          <SlideViewer persistRef={persistRef} stampRef={stampRef} />
+          <SlideViewer
+            persistRef={persistRef}
+            stampRef={stampRef}
+            whiteboardPages={whiteboardPages}
+          />
         ) : (
           <main className="flex-1 flex items-center justify-center bg-gray-800">
             <div className="text-center text-gray-400">
