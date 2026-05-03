@@ -136,3 +136,98 @@ def download_notes_markdown(file_id: str):
         headers={"Content-Disposition": f'attachment; filename="{safe_name}_notes.md"'},
     )
 
+
+@router.get("/{file_id}/slides.md")
+def download_slides_markdown(file_id: str):
+    """
+    슬라이드 원문 Markdown 다운로드 (Obsidian/Notion/NotebookLM 최적화).
+
+    POST /api/ai/{file_id}/to-markdown 변환 완료 후 이 엔드포인트로 다운로드.
+
+    notes.md(사용자 노트+AI요약)와 다른 파일:
+    - notes.md      : 사용자가 입력한 노트 + AI 요약 (발표자 노트 형식)
+    - slides.md     : 슬라이드 원문을 충실하게 변환한 구조화된 Markdown
+    """
+    from datetime import date
+
+    fid = _validate_id(file_id)
+    meta_path = UPLOADS_DIR / fid / "metadata.json"
+    if not meta_path.exists():
+        raise HTTPException(404, "파일을 찾을 수 없음")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    filename = meta.get("filename", "슬라이드")
+    ext = meta.get("ext", "")
+    page_count = meta.get("pageCount", 0)
+    notes_dir = UPLOADS_DIR / fid / "notes"
+
+    # 변환된 슬라이드 Markdown 존재 여부 확인
+    converted_count = 0
+    for page in range(1, page_count + 1):
+        note_path = notes_dir / f"slide_{page:02d}.json"
+        if note_path.exists():
+            try:
+                data = json.loads(note_path.read_text(encoding="utf-8"))
+                if data.get("slide_markdown"):
+                    converted_count += 1
+            except Exception:
+                pass
+
+    if converted_count == 0:
+        raise HTTPException(
+            404,
+            "변환된 슬라이드 Markdown이 없습니다. "
+            "먼저 '슬라이드 → Markdown 변환'을 실행해 주세요.",
+        )
+
+    stem = Path(filename).stem
+    today = date.today().isoformat()
+
+    # YAML frontmatter (Obsidian 호환)
+    lines: list[str] = [
+        "---",
+        f'title: "{stem}"',
+        f'source: "{filename}"',
+        f'converted: "{today}"',
+        f"slides: {page_count}",
+        "tags:",
+        "  - slidenote",
+        "  - presentation",
+        "---",
+        "",
+        f"# {stem}",
+        "",
+        f"> **원본**: {filename}  ",
+        f"> **슬라이드**: {page_count}장  ",
+        f"> **변환**: {today} (SlideNote 슬라이드 Markdown 변환)",
+        f"> **참고**: 이 파일은 슬라이드 원문 변환입니다. 발표자 노트 AI 요약은 `{stem}_notes.md`를 참조하세요.",
+        "",
+    ]
+
+    for page in range(1, page_count + 1):
+        note_path = notes_dir / f"slide_{page:02d}.json"
+        slide_md = ""
+        if note_path.exists():
+            try:
+                data = json.loads(note_path.read_text(encoding="utf-8"))
+                slide_md = (data.get("slide_markdown") or "").strip()
+            except Exception:
+                pass
+
+        lines.append(f"## 슬라이드 {page}")
+        lines.append("")
+        if slide_md:
+            lines.append(slide_md)
+        else:
+            lines.append("_(변환 데이터 없음 — 변환을 다시 실행해 주세요)_")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    md_content = "\n".join(lines)
+    safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in stem)
+    return PlainTextResponse(
+        content=md_content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_slides.md"'},
+    )

@@ -84,6 +84,62 @@ export const downloadNotesMarkdown = (fileId, filename = 'notes') => {
 }
 
 /**
+ * 전체 슬라이드 → 구조화된 Markdown 변환 (SSE 스트리밍, 원문 충실 변환).
+ * AI 요약(summarizeSlide)과 다름:
+ *   - summarizeSlide: 슬라이드를 3줄로 압축하는 발표자 노트 요약
+ *   - convertSlidesToMarkdown: 모든 텍스트/표/다이어그램을 빠짐없이 Markdown으로 변환
+ *
+ * @param {string} fileId
+ * @param {(state: {status:string, page?:number, total:number}) => void} onProgress
+ * @returns {Promise<void>} 변환 완료 시 resolve, 오류 시 reject
+ */
+export const convertSlidesToMarkdown = (fileId, onProgress) => {
+  return new Promise((resolve, reject) => {
+    fetch(`/api/ai/${fileId}/to-markdown`, { method: 'POST' })
+      .then((resp) => {
+        if (!resp.ok) return reject(new Error(`HTTP ${resp.status}`))
+        const reader = resp.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        function pump() {
+          reader.read().then(({ done, value }) => {
+            if (done) { resolve(); return }
+            buffer += decoder.decode(value, { stream: true })
+            const events = buffer.split('\n\n')
+            buffer = events.pop() ?? ''
+            for (const event of events) {
+              const line = event.trim()
+              if (!line.startsWith('data:')) continue
+              try {
+                const state = JSON.parse(line.slice(5).trim())
+                onProgress(state)
+                if (state.status === 'complete') { resolve(); return }
+                if (state.status === 'error' && !state.page) { reject(new Error(state.message)); return }
+              } catch {/* ignore malformed */}
+            }
+            pump()
+          }).catch(reject)
+        }
+        pump()
+      })
+      .catch(reject)
+  })
+}
+
+/**
+ * 변환된 슬라이드 Markdown 파일 다운로드.
+ * convertSlidesToMarkdown 완료 후 호출.
+ */
+export const downloadSlidesMarkdown = (fileId, filename = 'slides') => {
+  const url = `/api/export/${fileId}/slides.md`
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}_slides.md`
+  a.click()
+}
+
+/**
  * 업로드 후 SSE 진행률 구독
  * @param {string} fileId
  * @param {(state: {status:string, page:number, total:number}) => void} onProgress

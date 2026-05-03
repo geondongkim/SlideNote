@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from './store/useAppStore'
-import { fetchNote, summarizeSlide, downloadHandout, downloadNotesMarkdown } from './lib/api'
+import { fetchNote, summarizeSlide, downloadHandout, downloadNotesMarkdown, convertSlidesToMarkdown, downloadSlidesMarkdown } from './lib/api'
 import { useAudioRecorder } from './hooks/useAudioRecorder'
 import { useAuth } from './hooks/useAuth'
 import { useFirestore } from './hooks/useFirestore'
@@ -21,6 +21,9 @@ export default function App() {
   const [saving, setSaving] = useState(false)
   const [whiteboardPages, setWhiteboardPages] = useState(new Set())
   const [presenting, setPresenting] = useState(false)
+  const [converting, setConverting] = useState(false)
+  const [convertProgress, setConvertProgress] = useState({ page: 0, total: 0 })
+  const [convertFilename, setConvertFilename] = useState('')
   const persistRef = useRef(null)
   const stampRef = useRef(null)   // useAudioRecorder.stamp → useAnnotation
 
@@ -86,7 +89,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [fileId, currentSlide, pageCount, setCurrentSlide])
 
-  // AI 요약 요청
+  // AI 요약 요청 (발표자 노트 형식 — 3줄 핵심 요약)
   const handleSummarize = async () => {
     if (!fileId || summarizing) return
     setSummarizing(true)
@@ -97,6 +100,26 @@ export default function App() {
       setAiSummary(`오류: ${e.response?.data?.detail || e.message}`)
     } finally {
       setSummarizing(false)
+    }
+  }
+
+  // 슬라이드 → Markdown 변환 (원문 충실 변환 — AI 요약과 다른 기능)
+  const handleConvertToMarkdown = async () => {
+    if (!fileId || converting) return
+    setConverting(true)
+    setConvertProgress({ page: 0, total: 0 })
+    try {
+      await convertSlidesToMarkdown(fileId, (state) => {
+        if (state.filename) setConvertFilename(state.filename)
+        if (state.total) setConvertProgress((p) => ({ ...p, total: state.total }))
+        if (state.page) setConvertProgress((p) => ({ ...p, page: state.page }))
+      })
+      // 변환 완료 → 바로 다운로드
+      downloadSlidesMarkdown(fileId, convertFilename || fileId)
+    } catch (e) {
+      alert(`Markdown 변환 오류: ${e.message}`)
+    } finally {
+      setConverting(false)
     }
   }
 
@@ -262,6 +285,37 @@ export default function App() {
               >
                 📝 노트 Markdown 내보내기
               </button>
+
+              {/* ── 슬라이드 → Markdown 변환 (AI 요약과 다른 기능) ───────────────
+                  AI 요약: 슬라이드를 3줄로 압축하는 발표자 노트
+                  이 버튼: 슬라이드 원문을 빠짐없이 변환 (Obsidian/Notion/NotebookLM용)
+              */}
+              <div className="mt-1 border-t border-gray-700 pt-2">
+                <p className="text-[10px] text-emerald-400 mb-1 font-medium">
+                  슬라이드 원문 → Markdown <span className="text-gray-500">(AI 요약 아님)</span>
+                </p>
+                <button
+                  onClick={handleConvertToMarkdown}
+                  disabled={!fileId || converting}
+                  className="w-full bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-600 text-white text-sm py-1 rounded transition-colors"
+                >
+                  {converting
+                    ? `변환 중… (${convertProgress.page}/${convertProgress.total})`
+                    : '📄 슬라이드 Markdown 변환'}
+                </button>
+                {converting && convertProgress.total > 0 && (
+                  <div className="mt-1 w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.round((convertProgress.page / convertProgress.total) * 100)}%` }}
+                    />
+                  </div>
+                )}
+                <p className="text-[9px] text-gray-500 mt-1 leading-snug">
+                  Obsidian · Notion · NotebookLM 최적화<br />
+                  표·다이어그램·텍스트 원문 보존
+                </p>
+              </div>
             </div>
           )}
         </aside>
