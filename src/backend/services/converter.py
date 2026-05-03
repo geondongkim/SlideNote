@@ -9,8 +9,10 @@ PPTX / PDF → PNG 변환
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import subprocess
+import tempfile
 from pathlib import Path
 
 import fitz  # PyMuPDF
@@ -36,10 +38,13 @@ def pdf_to_pngs(pdf_path: Path, out_dir: Path, dpi: int = DPI) -> list[Path]:
 
 
 def pptx_to_pngs(pptx_path: Path, out_dir: Path) -> list[Path]:
-    """PPTX → PNG. Windows는 win32com, 그 외는 LibreOffice 폴백."""
+    """PPTX → PNG. Windows는 win32com, Linux는 Gotenberg(우선) 또는 LibreOffice 폴백."""
     out_dir.mkdir(parents=True, exist_ok=True)
     if platform.system() == "Windows":
         return _win32_pptx_to_pngs(pptx_path, out_dir)
+    gotenberg_url = os.environ.get("GOTENBERG_URL")
+    if gotenberg_url:
+        return _gotenberg_pptx_to_pngs(pptx_path, out_dir, gotenberg_url)
     return _libreoffice_pptx_to_pngs(pptx_path, out_dir)
 
 
@@ -98,6 +103,31 @@ finally:
         raise RuntimeError("변환 결과 PNG 없음")
     logger.info("PPTX 변환 완료: %d슬라이드 → %s", len(pngs), out_dir)
     return pngs
+
+
+def _gotenberg_pptx_to_pngs(pptx_path: Path, out_dir: Path, gotenberg_url: str) -> list[Path]:
+    """Gotenberg LibreOffice API → PDF bytes → PyMuPDF PNG 변환 (Linux/Docker)."""
+    import httpx
+
+    endpoint = f"{gotenberg_url.rstrip('/')}/forms/libreoffice/convert"
+    with open(pptx_path, "rb") as f:
+        resp = httpx.Client(timeout=300).post(
+            endpoint,
+            files={"files": (pptx_path.name, f, "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+            data={"exportHiddenSlides": "false", "quality": "90"},
+        )
+    resp.raise_for_status()
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(resp.content)
+        tmp_path = Path(tmp.name)
+    try:
+        result = pdf_to_pngs(tmp_path, out_dir)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    logger.info("Gotenberg PPTX 변환 완료: %d슬라이드 → %s", len(result), out_dir)
+    return result
 
 
 def _libreoffice_pptx_to_pngs(pptx_path: Path, out_dir: Path) -> list[Path]:

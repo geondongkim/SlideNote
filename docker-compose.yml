@@ -1,0 +1,33 @@
+services:
+  # Gotenberg: LibreOffice 기반 문서 변환 서버 (Linux PPTX → PDF)
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--libreoffice-auto-start=true"
+      - "--libreoffice-max-queue-size=5"
+
+  # SlideNote FastAPI 백엔드
+  backend:
+    build: ./src/backend
+    restart: unless-stopped
+    volumes:
+      - uploads_data:/app/uploads
+    env_file: .env
+    environment:
+      - GOTENBERG_URL=http://gotenberg:3000
+    depends_on:
+      - gotenberg
+
+  # SlideNote React 프론트엔드 (Nginx)
+  frontend:
+    build: ./src/frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  uploads_data:

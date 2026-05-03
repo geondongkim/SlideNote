@@ -434,55 +434,32 @@ https://console.firebase.google.com/project/slidenote-2026/storage
 → 이후: firebase deploy --only storage
 ```
 
-### Gotenberg 기반 PPTX 변환 서버 (Linux/Mac 배포 시)
+### Gotenberg 기반 PPTX 변환 서버 (Linux/Mac 배포 시) ✅
 
 > 참고: `gotenberg/gotenberg` — LibreOffice + Chromium 기반 문서 변환 API
 
-```python
-# services/converter.py — Linux 환경 PPTX 변환 대안
-import httpx, pathlib
+**구현 완료 (Phase 3)**:
+- `services/converter.py` — `GOTENBERG_URL` 환경변수 감지 → `_gotenberg_pptx_to_pngs()` 호출
+  - `httpx.Client(timeout=300)` 동기 POST → PDF bytes → PyMuPDF PNG 변환
+  - 우선순위: Windows → win32com, Linux `GOTENBERG_URL` 설정 시 → Gotenberg, 없으면 → LibreOffice
+- `requirements.txt` — `httpx==0.28.1` 추가
+- `src/backend/Dockerfile` — python:3.13-slim + uvicorn
+- `src/frontend/Dockerfile` — node:20-alpine 빌드 + nginx:1.27-alpine 서빙
+- `src/frontend/nginx.conf` — `/api/`, `/uploads/` 프록시 + SSE 지원 + SPA fallback
+- `docker-compose.yml` (루트) — backend + frontend + gotenberg 3-서비스 구성
+- `src/backend/.dockerignore`, `src/frontend/.dockerignore` 추가
 
-GOTENBERG_URL = os.getenv("GOTENBERG_URL", "http://gotenberg:3000")
+```bash
+# Docker로 전체 스택 실행
+docker compose up --build
 
-async def pptx_to_pdf_via_gotenberg(pptx_path: pathlib.Path) -> bytes:
-    """
-    POST /forms/libreoffice/convert  (multipart)
-    Gotenberg 주요 옵션:
-      exportHiddenSlides=false  — 숨긴 슬라이드 제외
-      exportNotesPages=false    — 발표자 노트 페이지 제외
-      quality=90                — JPEG 품질
-      reduceImageResolution=true / maxImageResolution=300
-    반환: PDF bytes → 이후 PyMuPDF로 PNG 변환
-    """
-    async with httpx.AsyncClient() as client:
-        files = {"files": (pptx_path.name, open(pptx_path, "rb"), "application/vnd.openxmlformats-officedocument.presentationml.presentation")}
-        data  = {"exportHiddenSlides": "false", "quality": "90"}
-        r = await client.post(f"{GOTENBERG_URL}/forms/libreoffice/convert", files=files, data=data)
-        r.raise_for_status()
-        return r.content
+# 서비스 접속
+# 앱:     http://localhost
+# API:    http://localhost/api
+# 백엔드: http://localhost:8000 (직접)
 ```
 
-```yaml
-# docker-compose.yml (Gotenberg 포함)
-services:
-  backend:
-    build: ./src/backend
-    ports: ["8000:8000"]
-    volumes: ["./uploads:/app/uploads"]
-    environment:
-      - GOTENBERG_URL=http://gotenberg:3000
-  frontend:
-    build: ./src/frontend
-    ports: ["5173:80"]
-  gotenberg:
-    image: gotenberg/gotenberg:8
-    ports: ["3000:3000"]
-    command:
-      - "gotenberg"
-      - "--libreoffice-auto-start=true"
-```
-
-> **주의**: Windows 로컬 개발 시는 win32com 사용. Linux 배포/CI 환경에서만 Gotenberg 활성화.
+> **주의**: Windows 로컬 개발 시는 win32com 사용. Linux 배포/Docker 환경에서만 Gotenberg 활성화.
 
 ### 모바일 앱 (React Native, Phase 3 확장)
 
@@ -781,6 +758,14 @@ uploads/
   - https://console.firebase.google.com/project/slidenote-2026/authentication/providers
 - [x] Firebase Storage 연동 (`useStorage.js`, `storage.rules` — Console에서 Storage 활성화 후 `firebase deploy --only storage` 실행)
 - [x] 다중 기기 세션 관리 (`useSession.js`, Firestore `sessions/{uid}/files/{fileId}`)
+
+### Docker + Gotenberg 배포 환경 (Phase 3)
+- [x] `services/converter.py` — `GOTENBERG_URL` env 감지 → `_gotenberg_pptx_to_pngs()` (httpx 동기 POST)
+- [x] `requirements.txt` — `httpx==0.28.1` 추가
+- [x] `src/backend/Dockerfile` — python:3.13-slim 기반, uvicorn 서빙
+- [x] `src/frontend/Dockerfile` — node:20-alpine 빌드 → nginx:1.27-alpine 멀티스테이지
+- [x] `src/frontend/nginx.conf` — /api, /uploads 프록시 + SSE unbuffered + SPA fallback
+- [x] `docker-compose.yml` (루트) — backend + frontend + gotenberg 3-서비스
 
 ### 업로드 진행률 + 노트 내보내기 (v1.4)
 - [x] `GET /api/files/upload/{file_id}/progress` — SSE 스트림 (변환 증간수 실시간 전송)
