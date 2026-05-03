@@ -6,35 +6,58 @@
 
 ## 1. PPTX → PNG 변환
 
-### Windows: pywin32 (PowerPoint COM)
+### Windows: pywin32 (PowerPoint COM) — subprocess 패턴 필수
 
-**권장 방식** — 가장 고품질 출력
+**⚠️ 중요**: uvicorn 이벤트루프 스레드에서 `win32com.client.Dispatch()` 직접 호출 시 COM STA 충돌 오류(`0x80048240`) 발생.  
+**해결책**: 별도 Python subprocess + 임시 .py 파일 패턴을 사용.
 
 ```python
-import win32com.client
-import os
+import sys, subprocess, tempfile
+from pathlib import Path
 
-def _win32_pptx_to_pngs(pptx_path, out_dir, width=1920):
-    pptx_abs = os.path.abspath(str(pptx_path))
-    out_abs  = os.path.abspath(str(out_dir))
-    os.makedirs(out_abs, exist_ok=True)
+def _win32_pptx_to_pngs(pptx_path: Path, out_dir: Path) -> list[Path]:
+    abs_pptx = str(pptx_path.resolve())
+    abs_out  = str(out_dir.resolve())
 
-    ppt = win32com.client.Dispatch("PowerPoint.Application")
-    ppt.Visible = True  # ← 반드시 True (headless 시 일부 슬라이드 렌더링 실패)
+    # COM 코드를 별도 프로세스로 격리 (STA 스레드 보장)
+    py_script = f"""\
+import pythoncom, win32com.client
+from pathlib import Path
+pythoncom.CoInitialize()
+app = win32com.client.DispatchEx('PowerPoint.Application')
+app.Visible = True  # 반드시 True (headless 시 렌더링 실패)
+try:
+    prs = app.Presentations.Open({abs_pptx!r}, False, False, True)
     try:
-        presentation = ppt.Presentations.Open(pptx_abs)
-        for i, slide in enumerate(presentation.Slides):
-            out_path = os.path.join(out_abs, f"page_{i+1:02d}.png")
-            slide.Export(out_path, "PNG", width)  # width만 지정, 비율 자동
-        presentation.Close()
+        for i in range(1, prs.Slides.Count + 1):
+            png = str(Path({abs_out!r}) / f'page_{{i:02d}}.png')
+            prs.Slides(i).Export(png, 'PNG', 1920)  # PNG_WIDTH=1920
+        print(prs.Slides.Count)
     finally:
-        ppt.Quit()
+        prs.Close()
+finally:
+    try: app.Quit()
+    except: pass
+    pythoncom.CoUninitialize()
+"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+        f.write(py_script)
+        tmp = f.name
+    try:
+        result = subprocess.run([sys.executable, tmp], capture_output=True, text=True, timeout=300)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        raise RuntimeError(f"PPTX COM 변환 실패:\n{result.stderr.strip()}")
+    return sorted(out_dir.glob('page_*.png'))
 ```
 
-**주의사항:**
-- `ppt.Visible = False` 또는 headless 시 일부 슬라이드 렌더링이 건너뛰어짐
-- `presentation.Slides(p)` — COM은 **1-based 인덱스** 사용 (python-pptx의 0-based와 다름)
-- `list(prs.slides)[:n]` — python-pptx의 `SlideMaster.slides`는 리스트로 변환 필요 (`[:n]` 슬라이싱 직접 불가)
+**핵심 포인트:**
+- `DispatchEx` 사용 (`Dispatch` 대신) — 새 인스턴스 강제 생성으로 기존 프로세스 간섭 방지
+- `Open(path, ReadOnly, Untitled, WithWindow)` — `WithWindow=True` (=`Visible=True` 동치)
+- COM 1-based 인덱스: `prs.Slides(i)` (1부터 시작), python-pptx의 0-based와 다름
+- `pythoncom.CoInitialize()` / `CoUninitialize()` — subprocess 내에서도 명시적 초기화 필요
 
 ### Linux/Mac: LibreOffice headless
 
@@ -47,6 +70,66 @@ python -c "import fitz; ..."
 **주의사항:**
 - LibreOffice 폰트 재현 불완전 (특히 한글 폰트)
 - 복잡한 애니메이션/이펙트 무시됨
+
+### Docker 환경: Gotenberg
+
+Linux/Docker 환경에서 `GOTENBERG_URL` 환경변수를 설정하면 LibreOffice 대신 Gotenberg 사용:
+
+```python
+# _gotenberg_pptx_to_pngs() 흐름
+import httpx
+resp = httpx.Client(timeout=300).post(
+    f"{gotenberg_url}/forms/libreoffice/convert",
+    files={"files": (pptx_path.name, open(pptx_path, 'rb'), 'application/vnd.openxmlformats...')},
+)
+# PDF bytes → 임시 파일 → pdf_to_pngs()
+```
+
+```bash
+# docker-compose.yml
+services:
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    ports: ["3000:3000"]
+
+# 백엔드 서비스 환경변수
+GOTENBERG_URL=http://gotenberg:3000
+```
+
+---
+
+## 1-B. PPTX → 고품질 PDF 변환 (벡터 보존)
+
+래스터 PNG와 달리 벡터·폰트·하이퍼링크를 완전 보존하는 PDF 직접 변환:
+
+### Windows: PowerPoint COM SaveAs
+
+```python
+# ppSaveAsPDF = 32 상수 (PowerPoint 2007+)
+py_script = f"""\
+import pythoncom, win32com.client
+pythoncom.CoInitialize()
+app = win32com.client.DispatchEx('PowerPoint.Application')
+app.Visible = True
+prs = app.Presentations.Open({abs_pptx!r}, False, False, True)
+prs.SaveAs({abs_pdf!r}, 32)  # ppSaveAsPDF = 32
+prs.Close()
+app.Quit()
+pythoncom.CoUninitialize()
+"""
+```
+
+- `SaveAs(path, 32)` — 두 번째 인자가 저장 형식 (32 = PDF)
+- 하이퍼링크, 폰트 임베딩, 투명도 레이어 모두 보존
+
+### Linux: Gotenberg PDF bytes 직접 저장
+
+```python
+# PNG 변환과 달리 PDF bytes를 그대로 파일로 저장
+resp = httpx.Client(timeout=300).post(endpoint, files={...})
+resp.raise_for_status()
+out_path.write_bytes(resp.content)  # 재변환 없음 → 원본 품질 유지
+```
 
 ---
 
@@ -211,25 +294,65 @@ img.onload = () => {
 };
 ```
 
-### 주석 JSON 저장 형식
+### 주석 JSON 저장 형식 (실제 스키마)
 
 ```json
 {
-  "version": "6.0.0",
+  "fabricVersion": "6.6.1",
   "objects": [
     {
+      "id": "<uuid>",
       "type": "path",
+      "_pageRatio": [1920, 1080],
+      "_timestamp": 32.5,
       "path": "M 100 200 L 150 180...",
       "stroke": "#e74c3c",
       "strokeWidth": 2,
-      "fill": "transparent",
-      "_timestamp": 32.5
+      "fill": "transparent"
     }
   ]
 }
 ```
 
-`_timestamp` 커스텀 필드로 오디오 연동 구현
+- `id`, `_pageRatio` 필드는 모든 주석 객체에 필수
+- `Fabric.toJSON(['id', '_pageRatio', '_timestamp'])` 로 직렬화
+- `_pageRatio`: 저장 당시 뷰포트 크기 → 해상도 무관 위치 복원에 사용
+
+### Eraser 도구 — useEffect cleanup 패턴
+
+Fabric.js 이벤트를 `canvas.on()`으로 등록할 때 **cleanup 반환 필수**:
+
+```js
+useEffect(() => {
+  if (!canvas || tool !== 'eraser') return
+
+  canvas.isDrawingMode = false
+  canvas.selection = false
+  let erasing = false
+
+  const onDown = () => { erasing = true }
+  const onUp   = () => { erasing = false }
+  const onMove = (opt) => {
+    if (!erasing) return
+    const ptr = canvas.getPointer(opt.e)
+    const targets = canvas.getObjects().filter(obj => obj.containsPoint(ptr))
+    if (targets.length) {
+      targets.forEach(obj => canvas.remove(obj))
+      canvas.renderAll()
+    }
+  }
+
+  canvas.on('mouse:down', onDown)
+  canvas.on('mouse:up', onUp)
+  canvas.on('mouse:move', onMove)
+
+  // ⚠️ cleanup 없으면 도구 전환 시 이전 핸들러가 남아 이벤트 중복 발생
+  return () => {
+    canvas.off('mouse:down', onDown)
+    canvas.off('mouse:up', onUp)
+    canvas.off('mouse:move', onMove)
+  }
+}, [canvas, tool])
 
 ---
 
@@ -318,3 +441,60 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 ```
 
 실제 스크립트 성공 여부는 마지막 출력 메시지(`완료!`)로 확인.
+
+---
+
+## 10. Docker / nginx SSE 지원
+
+### nginx에서 SSE 비활성화 문제
+
+nginx 기본 설정은 응답을 버퍼링하여 SSE 이벤트가 즉시 전달되지 않음:
+
+```nginx
+# nginx.conf — /api/ 프록시 블록에 아래 설정 필수
+location /api/ {
+    proxy_pass http://backend:8000/;
+    proxy_buffering     off;           # ← 버퍼링 비활성화 (SSE 필수)
+    proxy_cache         off;
+    proxy_read_timeout  3600;          # 장시간 변환 (PPTX→PDF 등) 대응
+    proxy_set_header Connection '';
+    chunked_transfer_encoding on;
+}
+```
+
+FastAPI `StreamingResponse` 헤더에도 추가 설정:
+
+```python
+return StreamingResponse(
+    stream(),
+    media_type="text/event-stream",
+    headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",  # ← nginx upstream에 버퍼링 비활성화 지시
+    },
+)
+```
+
+### Docker compose 포트 충돌
+
+```bash
+# 포트 사용 중 확인 (Windows PowerShell)
+netstat -ano | Select-String ":80 "
+
+# docker-compose.yml 포트 변경 예시
+ports:
+  - "8080:80"   # 충돌 시 호스트 포트만 변경
+```
+
+### Windows 로컬 vs Docker 환경 분기
+
+```
+Windows 로컬 개발:
+  win32com (PowerPoint 설치 필요) → PPTX→PNG/PDF 최고 품질
+  GOTENBERG_URL 미설정 → Gotenberg 비활성
+
+Linux/Docker:
+  GOTENBERG_URL=http://gotenberg:3000 → LibreOffice API 사용
+  win32com 없음 → Gotenberg 또는 LibreOffice headless 폴백
+```
+
