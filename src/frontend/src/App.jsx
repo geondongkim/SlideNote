@@ -14,7 +14,7 @@ import RecentFiles from './components/RecentFiles'
 import PresentationMode from './components/PresentationMode'
 
 export default function App() {
-  const { fileId, currentSlide, pageCount, setCurrentSlide, filename, setFile } = useAppStore()
+  const { fileId, currentSlide, pageCount, setCurrentSlide, filename, setFile, clearFile } = useAppStore()
   const [noteText, setNoteText] = useState('')
   const [aiSummary, setAiSummary] = useState('')
   const [summarizing, setSummarizing] = useState(false)
@@ -233,7 +233,10 @@ export default function App() {
       {/* 헤더 */}
       <header className="flex items-center justify-between px-4 py-2 bg-gray-950 border-b border-gray-700 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-semibold text-white text-sm shrink-0">SlideNote</span>
+          <button
+            onClick={clearFile}
+            className="font-semibold text-white text-sm shrink-0 hover:text-blue-400 transition-colors"
+          >SlideNote</button>
           {filename && (
             <span className="text-gray-400 text-xs truncate max-w-[200px]" title={filename}>
               / {filename}
