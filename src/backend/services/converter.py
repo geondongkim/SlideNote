@@ -44,29 +44,60 @@ def pptx_to_pngs(pptx_path: Path, out_dir: Path) -> list[Path]:
 
 
 def _win32_pptx_to_pngs(pptx_path: Path, out_dir: Path) -> list[Path]:
-    """PowerPoint COM (pywin32). Visible=True, 1-based, list() 변환 필수."""
-    import pythoncom  # noqa: F401  pywin32 동반 설치
-    from win32com import client as win32
+    """PowerPoint COM — Python subprocess로 실행.
 
-    powerpoint = win32.Dispatch("PowerPoint.Application")
-    powerpoint.Visible = True  # 필수: False 시 일부 환경에서 실패
+    uvicorn 이벤트루프 스레드에서 COM STA 충돌을 피하기 위해
+    별도 Python 프로세스를 생성해 COM 변환을 수행한다.
+    부모 프로세스의 window station을 상속하므로 Visible=True 설정 가능.
+    """
+    import sys
+    import tempfile
+
+    abs_pptx = str(pptx_path.resolve())
+    abs_out  = str(out_dir.resolve())
+
+    py_script = f"""\
+import pythoncom, win32com.client, sys
+from pathlib import Path
+pythoncom.CoInitialize()
+app = win32com.client.DispatchEx('PowerPoint.Application')
+app.Visible = True
+try:
+    prs = app.Presentations.Open({abs_pptx!r}, False, False, True)
     try:
-        prs = powerpoint.Presentations.Open(
-            str(pptx_path.resolve()), WithWindow=False, ReadOnly=True
-        )
-        try:
-            slides = list(prs.Slides)  # 슬라이스 오류 방지
-            results: list[Path] = []
-            for i, slide in enumerate(slides, start=1):
-                png_path = out_dir / f"page_{i:02d}.png"
-                # ppFixedFormatTypePNG는 Export로 저장 (가로 1920)
-                slide.Export(str(png_path), "PNG", PNG_WIDTH)
-                results.append(png_path)
-            return results
-        finally:
-            prs.Close()
+        for i, slide in enumerate(prs.Slides, 1):
+            png = str(Path({abs_out!r}) / f'page_{{i:02d}}.png')
+            slide.Export(png, 'PNG', {PNG_WIDTH})
+        print(prs.Slides.Count)
     finally:
-        powerpoint.Quit()
+        prs.Close()
+finally:
+    try: app.Quit()
+    except: pass
+    pythoncom.CoUninitialize()
+"""
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".py", delete=False, encoding="utf-8"
+    ) as f:
+        f.write(py_script)
+        tmp_path = f.name
+
+    try:
+        result = subprocess.run(
+            [sys.executable, tmp_path],
+            capture_output=True, text=True, timeout=300,
+        )
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        raise RuntimeError(f"PPTX COM 변환 실패:\n{result.stderr.strip()}")
+
+    pngs = sorted(out_dir.glob("page_*.png"))
+    if not pngs:
+        raise RuntimeError("변환 결과 PNG 없음")
+    logger.info("PPTX 변환 완료: %d슬라이드 → %s", len(pngs), out_dir)
+    return pngs
 
 
 def _libreoffice_pptx_to_pngs(pptx_path: Path, out_dir: Path) -> list[Path]:
