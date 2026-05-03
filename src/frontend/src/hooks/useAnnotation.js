@@ -23,6 +23,22 @@ export function useAnnotation(canvasRef, fileId, page, stampRef) {
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
 
+  const _syncHistory = () => {
+    setCanUndo(historyRef.current.length > 1)
+    setCanRedo(redoRef.current.length > 0)
+  }
+
+  // ── Undo/Redo ──
+  const _saveSnapshot = useCallback(() => {
+    const canvas = fabricRef.current
+    if (!canvas) return
+    const snap = canvas.toJSON(['id', '_pageRatio', '_timestamp'])
+    historyRef.current.push(snap)
+    redoRef.current = []
+    if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift()
+    _syncHistory()
+  }, [])
+
   // ── 캔버스 초기화 ──
   useEffect(() => {
     if (!canvasRef.current) return
@@ -130,17 +146,6 @@ export function useAnnotation(canvasRef, fileId, page, stampRef) {
     }
   }, [tool, color, brushWidth, _saveSnapshot])
 
-  // ── Undo/Redo ──
-  const _saveSnapshot = useCallback(() => {
-    const canvas = fabricRef.current
-    if (!canvas) return
-    const snap = canvas.toJSON(['id', '_pageRatio', '_timestamp'])
-    historyRef.current.push(snap)
-    redoRef.current = []
-    if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift()
-    _syncHistory()
-  }, [])
-
   const undo = useCallback(() => {
     if (historyRef.current.length < 2) return
     const last = historyRef.current.pop()
@@ -157,11 +162,6 @@ export function useAnnotation(canvasRef, fileId, page, stampRef) {
     fabricRef.current.loadFromJSON(next, () => fabricRef.current.renderAll())
     _syncHistory()
   }, [])
-
-  const _syncHistory = () => {
-    setCanUndo(historyRef.current.length > 1)
-    setCanRedo(redoRef.current.length > 0)
-  }
 
   // ── 텍스트 추가 ──
   const addText = useCallback(() => {

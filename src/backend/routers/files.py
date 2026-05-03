@@ -20,7 +20,7 @@ router = APIRouter()
 
 UPLOADS_DIR = Path("uploads")
 ALLOWED_EXT = {".pdf", ".pptx"}
-MAX_BYTES = 50 * 1024 * 1024  # 50MB
+MAX_BYTES = 200 * 1024 * 1024  # 200MB
 
 # 변환 진행 상태 저장소 (메모리, 단일 프로세스)
 _conversion_progress: dict[str, dict] = {}
