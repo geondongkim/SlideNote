@@ -57,21 +57,25 @@ def _win32_pptx_to_pngs(pptx_path: Path, out_dir: Path) -> list[Path]:
     """
     import sys
     import tempfile
+    import shutil
 
-    abs_pptx = str(pptx_path.resolve())
-    abs_out  = str(out_dir.resolve())
+    # PPTX를 ASCII 임시 경로로 복사 (한글 경로에서 COM Open 실패 방지)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="sn_pngs_"))
+    tmp_pptx = tmp_dir / "presentation.pptx"
+    shutil.copy(str(pptx_path.resolve()), str(tmp_pptx))
+    abs_tmp_pptx = str(tmp_pptx)
+    abs_tmp = str(tmp_dir)
 
     py_script = f"""\
 import pythoncom, win32com.client, sys
 from pathlib import Path
 pythoncom.CoInitialize()
 app = win32com.client.DispatchEx('PowerPoint.Application')
-app.Visible = True
 try:
-    prs = app.Presentations.Open({abs_pptx!r}, False, False, True)
+    prs = app.Presentations.Open({abs_tmp_pptx!r}, True, False, True)  # ReadOnly=True
     try:
         for i, slide in enumerate(prs.Slides, 1):
-            png = str(Path({abs_out!r}) / f'page_{{i:02d}}.png')
+            png = str(Path({abs_tmp!r}) / f'page_{{i:02d}}.png')
             slide.Export(png, 'PNG', {PNG_WIDTH})
         print(prs.Slides.Count)
     finally:
@@ -94,9 +98,17 @@ finally:
         )
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+        tmp_pptx.unlink(missing_ok=True)
 
     if result.returncode != 0:
+        shutil.rmtree(str(tmp_dir), ignore_errors=True)
         raise RuntimeError(f"PPTX COM 변환 실패:\n{result.stderr.strip()}")
+
+    # 임시 폴더의 PNG를 최종 경로로 이동
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for png in sorted(tmp_dir.glob("page_*.png")):
+        shutil.move(str(png), str(out_dir / png.name))
+    shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
     pngs = sorted(out_dir.glob("page_*.png"))
     if not pngs:
@@ -176,20 +188,25 @@ def pptx_to_pdf_native(pptx_path: Path, out_path: Path) -> Path:
 def _win32_pptx_to_pdf(pptx_path: Path, out_path: Path) -> Path:
     """PowerPoint COM으로 PPTX → PDF (ppSaveAsPDF=32). 벡터·폰트·링크 완전 보존."""
     import sys
+    import shutil
 
-    abs_pptx = str(pptx_path.resolve())
-    abs_pdf = str(out_path.resolve())
+    # PPTX와 출력 PDF 모두 ASCII 임시 경로로 이동 (한글 경로에서 COM 실패 방지)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="sn_pdf_"))
+    tmp_pptx = tmp_dir / "presentation.pptx"
+    tmp_pdf = tmp_dir / "output.pdf"
+    shutil.copy(str(pptx_path.resolve()), str(tmp_pptx))
+    abs_tmp_pptx = str(tmp_pptx)
+    abs_tmp_pdf = str(tmp_pdf)
 
     py_script = f"""\
 import pythoncom, win32com.client
 from pathlib import Path
 pythoncom.CoInitialize()
 app = win32com.client.DispatchEx('PowerPoint.Application')
-app.Visible = True
 try:
-    prs = app.Presentations.Open({abs_pptx!r}, False, False, True)
+    prs = app.Presentations.Open({abs_tmp_pptx!r}, False, False, True)
     try:
-        prs.SaveAs({abs_pdf!r}, 32)  # ppSaveAsPDF = 32
+        prs.SaveAs({abs_tmp_pdf!r}, 32)  # ppSaveAsPDF = 32
     finally:
         prs.Close()
 finally:
@@ -200,21 +217,28 @@ print('ok')
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
         f.write(py_script)
-        tmp_path = f.name
+        tmp_script = f.name
 
     try:
         result = subprocess.run(
-            [sys.executable, tmp_path],
+            [sys.executable, tmp_script],
             capture_output=True, text=True, timeout=300,
         )
     finally:
-        Path(tmp_path).unlink(missing_ok=True)
+        Path(tmp_script).unlink(missing_ok=True)
+        tmp_pptx.unlink(missing_ok=True)
 
     if result.returncode != 0:
+        shutil.rmtree(str(tmp_dir), ignore_errors=True)
         raise RuntimeError(f"PPTX→PDF COM 변환 실패:\n{result.stderr.strip()}")
 
-    if not out_path.exists():
+    if not tmp_pdf.exists():
+        shutil.rmtree(str(tmp_dir), ignore_errors=True)
         raise RuntimeError("PowerPoint COM이 PDF를 생성하지 않음")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(tmp_pdf), str(out_path))
+    shutil.rmtree(str(tmp_dir), ignore_errors=True)
 
     logger.info("PowerPoint COM PDF 변환 완료: %s", out_path)
     return out_path
