@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -31,6 +32,12 @@ def _get_meta(file_dir: Path) -> dict:
 def _safe_filename(name: str) -> str:
     """Content-Disposition에 안전한 파일명 생성."""
     return "".join(c if c.isalnum() or c in "._- ()가-힣" else "_" for c in name)
+
+
+def _content_disposition(filename: str) -> str:
+    """RFC 5987 형식 Content-Disposition 헤더 값. 한글/특수문자 파일명 지원."""
+    encoded = quote(filename, safe="")
+    return f'attachment; filename="download"; filename*=UTF-8\'\'{encoded}'
 
 
 @router.get("/{file_id}")
@@ -133,7 +140,7 @@ def download_notes_markdown(file_id: str):
     return PlainTextResponse(
         content=md_content,
         media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}_notes.md"'},
+        headers={"Content-Disposition": _content_disposition(f"{safe_name}_notes.md")},
     )
 
 
@@ -229,5 +236,5 @@ def download_slides_markdown(file_id: str):
     return PlainTextResponse(
         content=md_content,
         media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}_slides.md"'},
+        headers={"Content-Disposition": _content_disposition(f"{safe_name}_slides.md")},
     )
