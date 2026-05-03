@@ -89,6 +89,7 @@ export function useAnnotation(canvasRef, fileId, page, stampRef) {
   useEffect(() => {
     const canvas = fabricRef.current
     if (!canvas) return
+
     const isDrawing = tool === 'pen' || tool === 'highlight'
     if (isDrawing) {
       // v6: PencilBrush를 먼저 할당해야 freeDrawingBrush가 초기화됨
@@ -101,7 +102,33 @@ export function useAnnotation(canvasRef, fileId, page, stampRef) {
     }
     canvas.isDrawingMode = isDrawing
     canvas.selection = tool === 'select'
-  }, [tool, color, brushWidth])
+
+    // 지우개 모드: 마우스 드래그 중 지나친 객체 제거
+    if (tool !== 'eraser') return
+    canvas.isDrawingMode = false
+    canvas.selection = false
+    let erasing = false
+    const onDown = () => { erasing = true }
+    const onUp   = () => { erasing = false }
+    const onMove = (opt) => {
+      if (!erasing) return
+      const ptr = canvas.getPointer(opt.e)
+      const targets = canvas.getObjects().filter((obj) => obj.containsPoint(ptr))
+      if (targets.length) {
+        targets.forEach((obj) => canvas.remove(obj))
+        canvas.renderAll()
+        _saveSnapshot()
+      }
+    }
+    canvas.on('mouse:down', onDown)
+    canvas.on('mouse:up',   onUp)
+    canvas.on('mouse:move', onMove)
+    return () => {
+      canvas.off('mouse:down', onDown)
+      canvas.off('mouse:up',   onUp)
+      canvas.off('mouse:move', onMove)
+    }
+  }, [tool, color, brushWidth, _saveSnapshot])
 
   // ── Undo/Redo ──
   const _saveSnapshot = useCallback(() => {

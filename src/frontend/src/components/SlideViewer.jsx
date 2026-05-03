@@ -27,6 +27,23 @@ export default function SlideViewer({ persistRef, stampRef, whiteboardPages = ne
     if (setToolRef) setToolRef.current = annotation.activateTool
   }, [annotation.activateTool, setToolRef])
 
+  // Ctrl+Z / Ctrl+Y / Delete / Escape 단축키
+  useEffect(() => {
+    const handler = (e) => {
+      if (!fileId) return
+      // Fabric.js IText 편집 중일 때는 단축키 무시
+      if (annotation.fabricRef?.current?.getActiveObject()?.isEditing) return
+      if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return
+
+      if (e.ctrlKey && !e.shiftKey && e.key === 'z') { e.preventDefault(); annotation.undo(); return }
+      if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); annotation.redo(); return }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !e.ctrlKey && !e.metaKey) { annotation.deleteSelected(); return }
+      if (e.key === 'Escape') { annotation.setTool('select'); return }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [fileId, annotation])
+
   // 슬라이드 변경 시 스켈레톤 리셋
   useEffect(() => {
     setImgLoaded(false)

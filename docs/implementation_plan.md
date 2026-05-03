@@ -831,7 +831,22 @@ uploads/
 
 ---
 
-## 오픈소스 참고 분석 요약
+## UX 개선 (v1.7) — 단축키 완성 + 지우개 도구
+
+> **배경**: v1.6에서 Ctrl+Z/Y 버튼에 tooltip만 있고 실제 키보드 단축키 미연결. 지우개 도구 부재.
+
+#### 지우개(Eraser) 도구
+- [x] `useAnnotation.js`: `tool === 'eraser'` 시 마우스 드래그로 닿은 객체 제거 (`containsPoint` + `canvas.remove`)
+- [x] `Toolbar.jsx`: TOOLS에 `{ id: 'eraser', label: '지우개', icon: '⌫', shortcut: 'E' }` 추가
+
+#### 단축키 완성
+- [x] `SlideViewer.jsx`: `useEffect` — Ctrl+Z(undo), Ctrl+Y/Ctrl+Shift+Z(redo), Delete/Backspace(선택 삭제), Escape(선택 모드)
+  - Fabric.js IText 편집 중(`isEditing`) + textarea/input 포커스 시 무시
+- [x] `App.jsx`: `TOOL_SHORTCUTS`에 `e: 'eraser'` 추가
+
+> **구현 완료 (commit TBD)**
+
+
 
 클론 위치: `repo/` (shallow, `--depth=1`)
 

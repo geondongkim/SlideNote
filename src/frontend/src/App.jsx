@@ -88,7 +88,7 @@ export default function App() {
   }, [fileId, currentSlide])
 
   // 키보드 네비게이션 ←/→ + 도구 단축키 V/P/H/T/A
-  const TOOL_SHORTCUTS = { v: 'select', p: 'pen', h: 'highlight', t: 'text', a: 'arrow' }
+  const TOOL_SHORTCUTS = { v: 'select', p: 'pen', h: 'highlight', e: 'eraser', t: 'text', a: 'arrow' }
   useEffect(() => {
     const handler = (e) => {
       if (!fileId) return
