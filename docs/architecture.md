@@ -34,18 +34,37 @@
 
 ## 파일 변환 플로우
 
+### PNG 변환 (슬라이드 뷰어용)
+
 ```
 [사용자 업로드]
       │
-      ├─ .pptx ─▶ [Windows] win32com PowerPoint COM
-      │            [Linux]   LibreOffice headless → PDF
+      ├─ .pptx ─▶ [Windows]              win32com subprocess → PNG × N장
+      │            [Linux + GOTENBERG_URL] Gotenberg → PDF → PyMuPDF → PNG
+      │            [Linux fallback]        LibreOffice headless → PDF → PNG
       │                              │
-      │                              ▼
       └─ .pdf ──▶ PyMuPDF (fitz) → PNG × N장 (DPI=150)
                                      │
                                      ▼
                               uploads/{id}/slides/
                               page_01.png ~ page_NN.png
+```
+
+### 고품질 PDF 변환 (벡터·폰트·링크 보존)
+
+```
+[고품질 PDF 요청] GET /api/export/{id}/original-pdf/convert  (SSE)
+      │
+      ├─ 원본이 .pdf ─▶ original.pdf 직접 사용 (즉시 done)
+      │
+      └─ 원본이 .pptx
+            │
+            ├─ [Windows]  win32com subprocess: prs.SaveAs(path, 32)  ← ppSaveAsPDF=32
+            ├─ [Gotenberg] httpx POST → PDF bytes 직접 저장
+            └─ [LibreOffice] libreoffice --headless --convert-to pdf
+                        │
+                        ▼
+               uploads/{id}/original_hq.pdf  (캐싱 — 재요청 시 재변환 생략)
 ```
 
 ## 주석 저장 플로우

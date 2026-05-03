@@ -107,34 +107,59 @@ git clone https://github.com/geondongkim/SlideNote.git
 cd SlideNote
 ```
 
-### 2. 백엔드 실행
+### 2. 환경 변수 설정
+
+프로젝트 **루트 디렉터리**에 `.env` 파일을 생성합니다:
+
+```bash
+# SlideNote/.env
+GOOGLE_API_KEY=your_gemini_key   # Gemini Vision API 키 (AI 기능 사용 시 필요)
+# GOTENBERG_URL=http://localhost:3000  # Docker 배포 시 PPTX 변환용 (선택)
+```
+
+> `.env`는 프로젝트 루트에 위치해야 합니다 (`src/backend/`가 아님). `main.py`가 루트 `.env`를 자동으로 로드합니다.
+
+### 3. 백엔드 실행
 
 ```bash
 cd src/backend
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# macOS/Linux
-source venv/bin/activate
-
 pip install -r requirements.txt
-
-# .env 파일 생성 (GOOGLE_API_KEY: Gemini API 키)
-echo "GOOGLE_API_KEY=your_gemini_key" > .env
-
 uvicorn main:app --reload --port 8000
 ```
 
-### 3. 프론트엔드 실행
+> **Swagger UI**: 서버 시작 후 `http://localhost:8000/docs` 에서 전체 API 명세를 확인할 수 있습니다.
+
+> **Windows 가상환경**: conda 환경(Anaconda/Miniconda)이 있으면 venv 없이 바로 실행 가능합니다.  
+> 별도 venv를 쓰려면: `python -m venv venv ; venv\Scripts\activate` 후 pip install.
+
+### 4. 프론트엔드 실행
 
 ```bash
 cd src/frontend
 npm install
 npm run dev
-# http://localhost:5174 에서 접속
+# http://localhost:5174 에서 접속 (5173 사용 중이면 자동으로 5174 할당)
 ```
 
-### 4. Docker로 전체 스택 실행 (Linux/배포)
+### 5. Windows에서 두 서버 동시 실행
+
+```powershell
+# PowerShell — 터미널 2개 열어서 각각 실행
+# 터미널 1 (백엔드)
+cd src\backend ; uvicorn main:app --reload --port 8000
+
+# 터미널 2 (프론트엔드)
+cd src\frontend ; npm run dev
+```
+
+또는 PowerShell 스크립트로 일괄 실행:
+```powershell
+.\scripts\dev.ps1
+```
+
+> **`scripts/dev.sh`** 는 macOS/Linux 전용입니다. Windows는 `dev.ps1`을 사용하세요.
+
+### 6. Docker로 전체 스택 실행 (Linux/배포)
 
 ```bash
 # 루트 디렉터리에서
@@ -153,9 +178,13 @@ docker compose up --build
 SlideNote/
 ├── README.md
 ├── docs/
+│   ├── development.md           # 개발 환경 설정 상세 가이드 ← 신규
 │   ├── implementation_plan.md   # 단계별 구현 계획
 │   ├── architecture.md          # 시스템 아키텍처
 │   └── troubleshooting.md       # 트러블슈팅 & 노하우
+├── scripts/
+│   ├── dev.sh                   # 개발 서버 일괄 실행 (macOS/Linux)
+│   └── dev.ps1                  # 개발 서버 일괄 실행 (Windows PowerShell)
 ├── docker-compose.yml           # 전체 스택 (backend + frontend + gotenberg)
 ├── src/
 │   ├── backend/
@@ -232,7 +261,7 @@ SlideNote/
 ## 알려진 제약사항 & 노하우
 
 > 이 프로젝트는 PPTX/PDF → Markdown 변환 파이프라인 개발 경험을 바탕으로 설계되었습니다.  
-> 자세한 내용은 [docs/troubleshooting.md](docs/troubleshooting.md)를 참조하세요.
+> 상세 설정: [docs/development.md](docs/development.md) | 트러블슈팅: [docs/troubleshooting.md](docs/troubleshooting.md)
 
 - **PPTX → PNG 변환**: Windows에서 `pywin32` (PowerPoint COM) 사용 시 고품질 출력 가능. Linux/Mac은 LibreOffice headless 사용
 - **gemini-2.5-flash-image** 모델은 복잡 다이어그램이나 비즈니스 디자인 슬라이드에서 inline_data(이미지 재생성) 시도 → `gemini-2.5-flash` 폴백 필수
