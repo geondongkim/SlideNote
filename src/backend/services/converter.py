@@ -91,15 +91,10 @@ finally:
         f.write(py_script)
         tmp_path = f.name
 
-    # Window Station 접근 권한 부여 → COM 서브프로세스가 인터랙티브 데스크탑에서 실행
-    _si = subprocess.STARTUPINFO()
-    _si.lpDesktop = "winsta0\\default"
     try:
         result = subprocess.run(
             [sys.executable, tmp_path],
             capture_output=True, text=True, timeout=300,
-            startupinfo=_si,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
     finally:
         Path(tmp_path).unlink(missing_ok=True)
@@ -224,15 +219,10 @@ print('ok')
         f.write(py_script)
         tmp_script = f.name
 
-    # Window Station 접근 권한 부여 → COM 서브프로세스가 인터랙티브 데스크탑에서 실행
-    _si = subprocess.STARTUPINFO()
-    _si.lpDesktop = "winsta0\\default"
     try:
         result = subprocess.run(
             [sys.executable, tmp_script],
             capture_output=True, text=True, timeout=300,
-            startupinfo=_si,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
     finally:
         Path(tmp_script).unlink(missing_ok=True)

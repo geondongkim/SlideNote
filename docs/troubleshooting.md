@@ -59,6 +59,16 @@ finally:
 - COM 1-based 인덱스: `prs.Slides(i)` (1부터 시작), python-pptx의 0-based와 다름
 - `pythoncom.CoInitialize()` / `CoUninitialize()` — subprocess 내에서도 명시적 초기화 필요
 
+**⚠️ 한글 경로 버그 (-2147188160) 해결책:**
+- `app.Presentations.Open(한글경로)` — non-ASCII 경로에서 `-2147188160` 실패
+- 해결: PPTX를 `tempfile.mkdtemp(prefix="sn_pngs_")` ASCII 경로로 복사 후 작업
+- `shutil.copy(원본경로, ascii임시경로)` → COM 작업 → 결과 파일 이동
+
+**⚠️ `CREATE_NEW_CONSOLE` + `lpDesktop` 금지:**
+- `subprocess.run(..., creationflags=CREATE_NEW_CONSOLE, startupinfo.lpDesktop="winsta0\\default")` 사용 시 **오히려 COM Open 실패**
+- uvicorn이 이미 사용자 인터랙티브 세션에서 실행되므로, 서브프로세스도 같은 세션 상속받으면 됨
+- `creationflags` / `startupinfo` 없이 단순 `subprocess.run([python, script], capture_output=True, ...)` 사용
+
 ### Linux/Mac: LibreOffice headless
 
 ```bash
