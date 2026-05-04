@@ -156,3 +156,72 @@ NoteEditor "AI 요약" 영역에 표시
 | + 5종 추가 | (Hi Melody, Gugi 등) | 기타 |
 
 시스템 폰트 (Malgun Gothic, Batang, Gulim 등)는 우선 탐색하므로 별도 다운로드 불필요.
+
+---
+
+## 배포 아키텍처 — Cloudflare Tunnel (자택 Windows PC)
+
+> win32com 100% 품질을 클라우드 비용 없이 인터넷에 노출하는 방식
+
+```
+[사용자 브라우저]  ──HTTPS──▶  [Cloudflare Edge]
+                                       │
+                              암호화 영구 터널
+                              (cloudflared daemon)
+                                       │
+                                       ▼
+                          [내 Windows PC :80 (nginx)]
+                          ┌────────────────────────────┐
+                          │  /            React 정적    │
+                          │  /api/*   ──▶ FastAPI :8000 │
+                          │  /uploads/*  ──▶ 정적 파일  │
+                          └────────────┬───────────────┘
+                                       │
+                              [FastAPI uvicorn :8000]
+                                       │
+                          ┌────────────▼───────────────┐
+                          │  win32com subprocess       │
+                          │  PowerPoint.exe            │
+                          │  → 100% 품질 PDF/PNG 변환  │
+                          └────────────────────────────┘
+```
+
+### 요청 흐름
+
+```
+브라우저 POST /api/files/upload
+  → Cloudflare Edge (TLS 종료)
+  → cloudflared 터널 (암호화)
+  → nginx :80 /api/* 프록시
+  → FastAPI :8000
+  → asyncio.Queue (변환 작업 큐)
+  → win32com subprocess (PowerPoint.exe)
+  → PNG 생성 → uploads/{id}/slides/
+  → SSE 진행률 스트림으로 브라우저에 실시간 전달
+```
+
+### 개선된 PNG 캐싱 구조 (Cloudflare R2 연동 시)
+
+```
+[변환 완료 PNG]
+      │
+      ├──▶ 로컬 uploads/{id}/slides/ (즉시 서빙)
+      │
+      └──▶ Cloudflare R2 업로드 (비동기, 백그라운드)
+                  │
+                  ▼
+           Cloudflare CDN 캐싱
+                  │
+           PC가 꺼져도 이미 변환된 슬라이드는 계속 서빙 가능
+```
+
+### 컴포넌트별 역할
+
+| 컴포넌트 | 역할 |
+|---------|------|
+| `cloudflared` | PC↔Cloudflare 영구 터널 유지 (Windows 서비스) |
+| `nginx` | 정적 파일 서빙 + `/api/*` 리버스 프록시 |
+| `FastAPI (uvicorn)` | REST API + SSE 스트리밍 |
+| `win32com subprocess` | PPTX → PDF/PNG 100% 품질 변환 |
+| `asyncio.Queue` | 동시 변환 요청 순차 처리 (PowerPoint 단일 인스턴스 보호) |
+| `Cloudflare Access` | 이메일/도메인 기반 접근 제어 (대시보드 설정만으로) |

@@ -880,6 +880,133 @@ uploads/
 
 ---
 
+## Phase 4: Cloudflare Tunnel 기반 자택 서버 배포
+
+> **목표**: 클라우드 서버 비용 없이, 내 Windows PC(win32com, 100% 품질)를 인터넷에 안전하게 노출
+
+### 아키텍처 개요
+
+```
+[사용자 브라우저]
+      │ HTTPS (443)
+      ▼
+[Cloudflare Edge] ← cloudflared 영구 터널 유지
+      │ 암호화 터널
+      ▼
+[내 Windows PC]
+  ├── uvicorn :8000 (FastAPI 백엔드)
+  │     └── win32com (PowerPoint.exe, 100% 품질)
+  ├── nginx :80 (React 프론트엔드 + /api 프록시)
+  └── cloudflared (tunnel daemon)
+```
+
+### 장단점
+
+| 항목 | 평가 |
+|------|------|
+| **렌더링 품질** | ★★★★★ win32com 100% (최고) |
+| **서버 비용** | ★★★★★ 무료 (Cloudflare Tunnel 무료) |
+| **설정 난이도** | ★★★★☆ 쉬움 (cloudflared 단일 바이너리) |
+| **PC 상시 켜야 함** | ⚠️ 서비스 중단 위험 |
+| **동시 사용자 한계** | ⚠️ PC 성능에 의존 (win32com은 싱글 인스턴스) |
+| **추가 레이턴시** | ⚠️ Cloudflare 라우팅 경유 ~50~100ms |
+| **보안** | ✅ TLS 자동, 포트 포워딩 불필요 |
+
+### 구현 계획
+
+#### Step 1: cloudflared 설치 및 터널 생성
+```powershell
+# Cloudflare Zero Trust 대시보드에서 터널 생성 후 토큰 발급
+winget install --id Cloudflare.cloudflared
+
+cloudflared tunnel login
+cloudflared tunnel create slidenote
+
+# config.yml 작성
+# tunnel: <TUNNEL_ID>
+# credentials-file: ~/.cloudflared/<TUNNEL_ID>.json
+# ingress:
+#   - hostname: slidenote.yourdomain.com
+#     service: http://localhost:80
+#   - service: http_status:404
+```
+
+#### Step 2: nginx 로컬 구성 (80 포트)
+```nginx
+# nginx.conf (로컬 Windows nginx)
+server {
+  listen 80;
+  location /api/ { proxy_pass http://127.0.0.1:8000; }
+  location /uploads/ { proxy_pass http://127.0.0.1:8000; }
+  location / { root C:/slidenote/dist; try_files $uri /index.html; }
+}
+```
+
+#### Step 3: Windows 서비스 등록 (자동 시작)
+```powershell
+# cloudflared를 Windows 서비스로 등록 → PC 부팅 시 자동 시작
+cloudflared service install
+```
+
+### 개선 방안
+
+#### 개선 1: 변환 작업 큐 (win32com 병목 해소) ★★★
+```
+문제: win32com은 PowerPoint 인스턴스 1개 → 동시 변환 불가 (16초/파일)
+해결: 간단한 파일 기반 큐
+  POST /api/files/upload → job_id 즉시 반환
+  GET /api/files/upload/{job_id}/progress (SSE) → 완료 시 file_id 전달
+  백그라운드 asyncio.Queue → 순차 변환 worker
+```
+→ 현재 SSE 진행률 구조 (`routers/files.py`)와 자연스럽게 연결 가능
+
+#### 개선 2: Cloudflare R2 슬라이드 PNG 캐싱 ★★★
+```
+변환 완료 PNG → Cloudflare R2(무료 10GB)에 업로드
+  → /slides/{file_id}/page_01.png 요청 → Cloudflare CDN 캐시 서빙
+  → PC가 꺼져도 이미 변환된 파일은 계속 접근 가능
+  → PC는 "변환 서버"만 담당, 정적 서빙은 Cloudflare
+```
+
+#### 개선 3: Cloudflare Access 인증 게이트 ★★☆
+```
+Cloudflare Zero Trust → Access Policy 설정
+  → 특정 이메일/도메인만 접근 허용
+  → 앱 자체 로그인(Firebase Auth)과 이중 보안
+  → 별도 코드 변경 없이 Cloudflare 대시보드만으로 설정
+```
+
+#### 개선 4: 다중 PC 변환 분산 ★★☆
+```
+PC A (주): cloudflared 터널, win32com 변환
+PC B (보조): 동일 FastAPI, 별도 포트
+  → nginx upstream 라운드로빈
+  → PC A 과부하 시 PC B로 분산
+  → 단, 파일 공유가 필요 (uploads/ 폴더 네트워크 드라이브 공유)
+```
+
+#### 개선 5: Wake-on-LAN 자동화 ★☆☆
+```
+PC 슬립 진입 방지:
+  - Windows 전원 설정 → 슬립 끄기 (고성능 모드)
+  - 또는 cloudflared health-check script로 절전 복귀 자동화
+```
+
+### 권장 구현 순서
+
+| 우선순위 | 작업 | 소요 시간 |
+|---------|------|----------|
+| 1 | cloudflared 설치 + 터널 생성 | 30분 |
+| 2 | nginx 로컬 설정 | 30분 |
+| 3 | cloudflared Windows 서비스 등록 | 10분 |
+| 4 | 변환 작업 큐 (개선1) | 2~3시간 |
+| 5 | Cloudflare R2 PNG 캐싱 (개선2) | 3~4시간 |
+| 6 | Cloudflare Access 인증 (개선3) | 30분 (대시보드) |
+
+> **커스텀 도메인 없어도 동작**: Cloudflare가 `<랜덤>.trycloudflare.com` 임시 URL 제공 (빠른 테스트용)
+
+---
+
 ## 참고 자료
 
 - [PDF.js 공식](https://mozilla.github.io/pdf.js/)
